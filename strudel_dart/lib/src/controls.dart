@@ -41,6 +41,97 @@ Pattern<ControlMap> delayfeedback(dynamic value) =>
 Pattern<ControlMap> crush(dynamic value) => createParam('crush', value);
 Pattern<ControlMap> coarse(dynamic value) => createParam('coarse', value);
 Pattern<ControlMap> shape(dynamic value) => createParam('shape', value);
+Pattern<ControlMap> color(dynamic value) => createParam('color', value);
+Pattern<ControlMap> partials(dynamic value) => createParam('partials', value);
+Pattern<ControlMap> phases(dynamic value) => createParam('phases', value);
+Pattern<ControlMap> hsl(dynamic h, dynamic s, dynamic l) {
+  final hue = (h as num).toDouble();
+  final sat = (s as num).toDouble();
+  final light = (l as num).toDouble();
+  return color('hsl(${hue}turn,${sat * 100}%,${light * 100}%)');
+}
+
+Pattern<ControlMap> hsla(dynamic h, dynamic s, dynamic l, dynamic a) {
+  final hue = (h as num).toDouble();
+  final sat = (s as num).toDouble();
+  final light = (l as num).toDouble();
+  final alpha = (a as num).toDouble();
+  return color('hsla(${hue}turn,${sat * 100}%,${light * 100}%,${alpha})');
+}
+
+Pattern<ControlMap> _distortWithAlg(
+  String name,
+  dynamic args, [
+  Pattern<ControlMap>? pat,
+]) {
+  final argsPat = reify(args).map((v) {
+    if (v is List) {
+      return [...v, name];
+    }
+    return [v, 1, name];
+  });
+  if (pat == null) {
+    return createParam('distort', argsPat);
+  }
+  return pat.distort(argsPat);
+}
+
+Pattern<ControlMap> soft(dynamic args) => _distortWithAlg('soft', args);
+Pattern<ControlMap> hard(dynamic args) => _distortWithAlg('hard', args);
+Pattern<ControlMap> cubic(dynamic args) => _distortWithAlg('cubic', args);
+Pattern<ControlMap> diode(dynamic args) => _distortWithAlg('diode', args);
+Pattern<ControlMap> asym(dynamic args) => _distortWithAlg('asym', args);
+Pattern<ControlMap> fold(dynamic args) => _distortWithAlg('fold', args);
+Pattern<ControlMap> sinefold(dynamic args) => _distortWithAlg('sinefold', args);
+Pattern<ControlMap> chebyshev(dynamic args) =>
+    _distortWithAlg('chebyshev', args);
+
+List<dynamic> _normalizeAdsr(dynamic value) {
+  if (value is List) return value;
+  if (value is String) {
+    final parts = value.split(':').map((v) => v.trim()).toList();
+    return parts;
+  }
+  return [value];
+}
+
+Pattern<ControlMap> _applyAdsr(
+  Pattern<ControlMap> pat,
+  List<dynamic> values,
+) {
+  Pattern<ControlMap> out = pat;
+  if (values.isNotEmpty) out = out.attack(_reifyString(values[0]));
+  if (values.length > 1) out = out.decay(_reifyString(values[1]));
+  if (values.length > 2) out = out.sustain(_reifyString(values[2]));
+  if (values.length > 3) out = out.release(_reifyString(values[3]));
+  return out;
+}
+
+Pattern<ControlMap> adsr(dynamic adsr) {
+  final values = _normalizeAdsr(adsr);
+  return _applyAdsr(pure(<String, dynamic>{}), values);
+}
+
+Pattern<ControlMap> ad(dynamic t) {
+  final values = _normalizeAdsr(t);
+  final attack = values.isNotEmpty ? values[0] : 0;
+  final decay = values.length > 1 ? values[1] : attack;
+  return _applyAdsr(pure(<String, dynamic>{}), [attack, decay]);
+}
+
+Pattern<ControlMap> ds(dynamic t) {
+  final values = _normalizeAdsr(t);
+  final decay = values.isNotEmpty ? values[0] : 0;
+  final sustain = values.length > 1 ? values[1] : 0;
+  return _applyAdsr(pure(<String, dynamic>{}), [null, decay, sustain]);
+}
+
+Pattern<ControlMap> ar(dynamic t) {
+  final values = _normalizeAdsr(t);
+  final attack = values.isNotEmpty ? values[0] : 0;
+  final release = values.length > 1 ? values[1] : attack;
+  return _applyAdsr(pure(<String, dynamic>{}), [attack, null, null, release]);
+}
 
 // Wavetable
 Pattern<ControlMap> wt(dynamic value) => createParam('wt', value);
@@ -199,10 +290,12 @@ Pattern<ControlMap> hpsync(dynamic value) => createParam('hpsync', value);
 Pattern<ControlMap> hpdepth(dynamic value) => createParam('hpdepth', value);
 
 dynamic _reifyString(dynamic value) {
+  if (value is Pattern) return value;
+
   if (value is String) {
     print('Controls: Reifying string "$value"');
     try {
-      final pat = mini(value);
+      final Pattern pat = mini(value);
       print('Controls: mini() success for "$value" -> $pat');
       return pat;
     } catch (e) {
@@ -210,6 +303,7 @@ dynamic _reifyString(dynamic value) {
       return value;
     }
   }
+
   return value;
 }
 
@@ -265,14 +359,104 @@ extension ControlPatternExtension on Pattern<ControlMap> {
   Pattern<ControlMap> room(dynamic value) => addControl('room', value);
   Pattern<ControlMap> size(dynamic value) => addControl('size', value);
   Pattern<ControlMap> dry(dynamic value) => addControl('dry', value);
+  Pattern<ControlMap> roomsize(dynamic value) => addControl('roomsize', value);
+  Pattern<ControlMap> roomfade(dynamic value) => addControl('roomfade', value);
+  Pattern<ControlMap> roomlp(dynamic value) => addControl('roomlp', value);
+  Pattern<ControlMap> distort(dynamic value) => addControl('distort', value);
   Pattern<ControlMap> delay(dynamic value) => addControl('delay', value);
   Pattern<ControlMap> delaytime(dynamic value) =>
       addControl('delaytime', value);
   Pattern<ControlMap> delayfeedback(dynamic value) =>
       addControl('delayfeedback', value);
+  Pattern<ControlMap> roomdim(dynamic value) => addControl('roomdim', value);
+  Pattern<ControlMap> orbit(dynamic value) => addControl('orbit', value);
+  Pattern<ControlMap> compressor(dynamic value) =>
+      addControl('compressor', value);
+  Pattern<ControlMap> clip(dynamic value) => addControl('clip', value);
   Pattern<ControlMap> crush(dynamic value) => addControl('crush', value);
   Pattern<ControlMap> coarse(dynamic value) => addControl('coarse', value);
   Pattern<ControlMap> shape(dynamic value) => addControl('shape', value);
+  Pattern<ControlMap> color(dynamic value) => addControl('color', value);
+  Pattern<ControlMap> partials(dynamic value) => addControl('partials', value);
+  Pattern<ControlMap> phases(dynamic value) => addControl('phases', value);
+  Pattern<ControlMap> hsl(dynamic h, dynamic s, dynamic l) =>
+      color('hsl(${(h as num)}turn,${(s as num) * 100}%,${(l as num) * 100}%)');
+  Pattern<ControlMap> hsla(dynamic h, dynamic s, dynamic l, dynamic a) => color(
+        'hsla(${(h as num)}turn,${(s as num) * 100}%,${(l as num) * 100}%,${(a as num)})',
+      );
+  Pattern<ControlMap> adsr(dynamic adsr) {
+    final values = _normalizeAdsr(adsr);
+    return _applyAdsr(this, values);
+  }
+  Pattern<ControlMap> ad(dynamic t) {
+    final values = _normalizeAdsr(t);
+    final attack = values.isNotEmpty ? values[0] : 0;
+    final decay = values.length > 1 ? values[1] : attack;
+    return _applyAdsr(this, [attack, decay]);
+  }
+  Pattern<ControlMap> ds(dynamic t) {
+    final values = _normalizeAdsr(t);
+    final decay = values.isNotEmpty ? values[0] : 0;
+    final sustain = values.length > 1 ? values[1] : 0;
+    return _applyAdsr(this, [null, decay, sustain]);
+  }
+  Pattern<ControlMap> ar(dynamic t) {
+    final values = _normalizeAdsr(t);
+    final attack = values.isNotEmpty ? values[0] : 0;
+    final release = values.length > 1 ? values[1] : attack;
+    return _applyAdsr(this, [attack, null, null, release]);
+  }
+  Pattern<ControlMap> soft(dynamic args) => _distortWithAlg('soft', args, this);
+  Pattern<ControlMap> hard(dynamic args) => _distortWithAlg('hard', args, this);
+  Pattern<ControlMap> cubic(dynamic args) =>
+      _distortWithAlg('cubic', args, this);
+  Pattern<ControlMap> diode(dynamic args) =>
+      _distortWithAlg('diode', args, this);
+  Pattern<ControlMap> asym(dynamic args) => _distortWithAlg('asym', args, this);
+  Pattern<ControlMap> fold(dynamic args) => _distortWithAlg('fold', args, this);
+  Pattern<ControlMap> sinefold(dynamic args) =>
+      _distortWithAlg('sinefold', args, this);
+  Pattern<ControlMap> chebyshev(dynamic args) =>
+      _distortWithAlg('chebyshev', args, this);
+
+  Pattern<ControlMap> FX(List<dynamic> effects) {
+    final effectsPat = sequenceP(effects);
+    return withValue((v) {
+          return (dynamic vEff) {
+            final curr = v['FX'];
+            final next = <dynamic>[];
+            if (curr is List) {
+              next.addAll(curr);
+            }
+            if (vEff is List) {
+              next.addAll(vEff);
+            } else {
+              next.add(vEff);
+            }
+            return {...v, 'FX': next};
+          };
+        }).appLeft(effectsPat)
+        as Pattern<ControlMap>;
+  }
+
+  Pattern<ControlMap> worklet(String src, [List<dynamic> inputs = const []]) {
+    final inputsPat = sequenceP(inputs);
+    return outerBind((v) {
+      return inputsPat.withValue((vInput) {
+        final currInputs = v['workletInputs'];
+        final nextInputs = <dynamic>[];
+        if (currInputs is List) {
+          nextInputs.addAll(currInputs);
+        }
+        if (vInput is List) {
+          nextInputs.addAll(vInput);
+        } else {
+          nextInputs.add(vInput);
+        }
+        return {...v, 'workletSrc': src, 'workletInputs': nextInputs};
+      });
+    }).cast<ControlMap>();
+  }
 
   // Wavetable
   Pattern<ControlMap> wt(dynamic value) => addControl('wt', value);
@@ -452,4 +636,8 @@ extension ControlPatternExtension on Pattern<ControlMap> {
 
   Pattern<ControlMap> overlay(dynamic other) => stack([this, other]);
   Pattern<ControlMap> cat(List<dynamic> others) => slowcat([this, ...others]);
+}
+
+Pattern<ControlMap> worklet(String src, [List<dynamic> inputs = const []]) {
+  return pure<ControlMap>({}).worklet(src, inputs);
 }

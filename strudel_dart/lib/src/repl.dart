@@ -2,6 +2,9 @@ import 'package:petitparser/petitparser.dart';
 import 'controls.dart' as c;
 import 'pattern.dart' as p;
 import 'bjorklund.dart' as b;
+import 'signal.dart' as s;
+import 'pick.dart' as k;
+import 'speak.dart' as sp;
 
 class StrudelREPL {
   late final Parser _parser;
@@ -212,10 +215,127 @@ class StrudelGrammarDefinition extends GrammarDefinition {
         return c.bank(args.isEmpty ? '' : args[0]);
       case 'dec':
         return c.dec(args.isEmpty ? 0.0 : args[0]);
+      case 'saw':
+        return s.saw;
+      case 'saw2':
+        return s.saw2;
+      case 'isaw':
+        return s.isaw;
+      case 'isaw2':
+        return s.isaw2;
+      case 'sine':
+        return s.sine;
+      case 'sine2':
+        return s.sine2;
+      case 'cosine':
+        return s.cosine;
+      case 'cosine2':
+        return s.cosine2;
+      case 'square':
+        return s.square;
+      case 'square2':
+        return s.square2;
+      case 'tri':
+        return s.tri;
+      case 'tri2':
+        return s.tri2;
+      case 'itri':
+        return s.itri;
+      case 'itri2':
+        return s.itri2;
+      case 'time':
+        return s.time;
+      case 'rand':
+        return s.rand;
+      case 'rand2':
+        return s.rand2;
+      case 'brand':
+        return s.brand;
+      case 'perlin':
+        return s.perlin;
+      case 'berlin':
+        return s.berlin;
+      case 'mousex':
+      case 'mouseX':
+        return s.mousex;
+      case 'mousey':
+      case 'mouseY':
+        return s.mousey;
+      case 'run':
+        return s.run(args[0] as int);
+      case 'irand':
+        return s.irand(args[0]);
+      case 'choose':
+        return s.choose(args);
+      case 'chooseIn':
+        return s.chooseIn(args);
+      case 'chooseCycles':
+        return s.chooseCycles(args);
+      case 'wchoose':
+        return s.wchoose(args.cast<List<dynamic>>());
+      case 'wchooseCycles':
+        return s.wchooseCycles(args.cast<List<dynamic>>());
+      case 'shuffle':
+        return s.shuffle(args[0] as int, args[1] as p.Pattern);
+      case 'scramble':
+        return s.scramble(args[0] as int, args[1] as p.Pattern);
+      case 'binary':
+        return s.binary(args[0] as int);
+      case 'binaryN':
+        return s.binaryN(args[0] as int, args[1] as int);
+      case 'binaryL':
+        return s.binaryL(args[0] as int);
+      case 'binaryNL':
+        return s.binaryNL(args[0] as int, args[1] as int);
+      case 'cyclesPer':
+        return s.cyclesPer;
+      case 'per':
+      case 'perCycle':
+        return s.per;
+      case 'perx':
+        return s.perx;
+      case 'pick':
+        return k.pick(args[0], args[1]);
+      case 'pickmod':
+        return k.pickmod(args[0], args[1] as p.Pattern);
+      case 'pickF':
+        return k.pickF(
+          args[0],
+          args[1] as List<Function>,
+          args[2] as p.Pattern,
+        );
+      case 'pickmodF':
+        return k.pickmodF(
+          args[0],
+          args[1] as List<Function>,
+          args[2] as p.Pattern,
+        );
+      case 'pickOut':
+        return k.pickOut(args[0], args[1] as p.Pattern);
+      case 'pickmodOut':
+        return k.pickmodOut(args[0], args[1] as p.Pattern);
+      case 'pickRestart':
+        return k.pickRestart(args[0], args[1] as p.Pattern);
+      case 'pickmodRestart':
+        return k.pickmodRestart(args[0], args[1] as p.Pattern);
+      case 'pickReset':
+        return k.pickReset(args[0], args[1] as p.Pattern);
+      case 'pickmodReset':
+        return k.pickmodReset(args[0], args[1] as p.Pattern);
+      case 'inhabit':
+      case 'pickSqueeze':
+        return k.inhabit(args[0], args[1] as p.Pattern);
+      case 'inhabitmod':
+      case 'pickmodSqueeze':
+        return k.inhabitmod(args[0], args[1] as p.Pattern);
+      case 'squeeze':
+        return k.squeeze(args[0] as p.Pattern, args[1] as List<dynamic>);
       case 'stack':
         return p.stack(args);
       case 'sequence':
         return p.sequence(args);
+      case 'morph':
+        return p.morph(args[0], args[1], args[2]);
       case 'setcps':
       case 'cps':
         final val = args.isEmpty ? 0.5 : (args[0] as num).toDouble();
@@ -231,6 +351,12 @@ class StrudelGrammarDefinition extends GrammarDefinition {
         final val = args.isEmpty ? 120.0 : (args[0] as num).toDouble();
         onCpsChange?.call(val / 240.0);
         return p.silence;
+      case 'speak':
+        return sp.speak(
+          args.isNotEmpty ? args[0] : 'en',
+          args.length > 1 ? args[1] : null,
+          args.length > 2 ? args[2] as p.Pattern : p.silence,
+        );
       case 'attack':
         return c.attack(args[0]);
       case 'decay':
@@ -269,6 +395,42 @@ class StrudelGrammarDefinition extends GrammarDefinition {
         return c.cutoff(args[0]);
       case 'resonance':
         return c.resonance(args[0]);
+      case 'adsr':
+        return c.adsr(args.length == 1 ? args[0] : args);
+      case 'ad':
+        return c.ad(args.length == 1 ? args[0] : args);
+      case 'ds':
+        return c.ds(args.length == 1 ? args[0] : args);
+      case 'ar':
+        return c.ar(args.length == 1 ? args[0] : args);
+      case 'color':
+        return c.color(args[0]);
+      case 'hsl':
+        return c.hsl(args[0], args[1], args[2]);
+      case 'hsla':
+        return c.hsla(args[0], args[1], args[2], args[3]);
+      case 'partials':
+        return c.partials(args[0]);
+      case 'phases':
+        return c.phases(args[0]);
+      case 'soft':
+        return c.soft(args[0]);
+      case 'hard':
+        return c.hard(args[0]);
+      case 'cubic':
+        return c.cubic(args[0]);
+      case 'diode':
+        return c.diode(args[0]);
+      case 'asym':
+        return c.asym(args[0]);
+      case 'fold':
+        return c.fold(args[0]);
+      case 'sinefold':
+        return c.sinefold(args[0]);
+      case 'chebyshev':
+        return c.chebyshev(args[0]);
+      case 'worklet':
+        return c.worklet(args[0] as String, args.sublist(1));
 
       // Wavetable
       case 'wt':
@@ -603,10 +765,158 @@ class StrudelGrammarDefinition extends GrammarDefinition {
         return (pattern as p.Pattern<c.ControlMap>).bank(args[0]);
       case 'dec':
         return (pattern as p.Pattern<c.ControlMap>).dec(args[0]);
+      case 'speak':
+        return sp.speak(
+          args.isNotEmpty ? args[0] : 'en',
+          args.length > 1 ? args[1] : null,
+          pattern as p.Pattern,
+        );
+      case 'adsr':
+        return (pattern as p.Pattern<c.ControlMap>)
+            .adsr(args.length == 1 ? args[0] : args);
+      case 'ad':
+        return (pattern as p.Pattern<c.ControlMap>)
+            .ad(args.length == 1 ? args[0] : args);
+      case 'ds':
+        return (pattern as p.Pattern<c.ControlMap>)
+            .ds(args.length == 1 ? args[0] : args);
+      case 'ar':
+        return (pattern as p.Pattern<c.ControlMap>)
+            .ar(args.length == 1 ? args[0] : args);
+      case 'color':
+        return (pattern as p.Pattern<c.ControlMap>).color(args[0]);
+      case 'hsl':
+        return (pattern as p.Pattern<c.ControlMap>).hsl(
+          args[0],
+          args[1],
+          args[2],
+        );
+      case 'hsla':
+        return (pattern as p.Pattern<c.ControlMap>).hsla(
+          args[0],
+          args[1],
+          args[2],
+          args[3],
+        );
+      case 'partials':
+        return (pattern as p.Pattern<c.ControlMap>).partials(args[0]);
+      case 'phases':
+        return (pattern as p.Pattern<c.ControlMap>).phases(args[0]);
+      case 'soft':
+        return (pattern as p.Pattern<c.ControlMap>).soft(args[0]);
+      case 'hard':
+        return (pattern as p.Pattern<c.ControlMap>).hard(args[0]);
+      case 'cubic':
+        return (pattern as p.Pattern<c.ControlMap>).cubic(args[0]);
+      case 'diode':
+        return (pattern as p.Pattern<c.ControlMap>).diode(args[0]);
+      case 'asym':
+        return (pattern as p.Pattern<c.ControlMap>).asym(args[0]);
+      case 'fold':
+        return (pattern as p.Pattern<c.ControlMap>).fold(args[0]);
+      case 'sinefold':
+        return (pattern as p.Pattern<c.ControlMap>).sinefold(args[0]);
+      case 'chebyshev':
+        return (pattern as p.Pattern<c.ControlMap>).chebyshev(args[0]);
       case 'fast':
         return pattern.fast(args[0]);
       case 'slow':
         return pattern.slow(args[0]);
+      case 'segment':
+      case 'seg':
+        return pattern.segment(args[0]);
+      case 'chunk':
+        return pattern.chunk(
+          (args[0] as num).toInt(),
+          args[1] as p.Pattern Function(p.Pattern),
+        );
+      case 'chunkBack':
+        return pattern.chunkBack(
+          (args[0] as num).toInt(),
+          args[1] as p.Pattern Function(p.Pattern),
+        );
+      case 'fastChunk':
+        return pattern.fastChunk(
+          (args[0] as num).toInt(),
+          args[1] as p.Pattern Function(p.Pattern),
+        );
+      case 'chunkInto':
+        return pattern.chunkInto(
+          (args[0] as num).toInt(),
+          args[1] as p.Pattern Function(p.Pattern),
+        );
+      case 'chunkBackInto':
+        return pattern.chunkBackInto(
+          (args[0] as num).toInt(),
+          args[1] as p.Pattern Function(p.Pattern),
+        );
+      case 'into':
+        return pattern.into(args[0], args[1] as p.Pattern Function(p.Pattern));
+      case 'bypass':
+        return pattern.bypass(args[0]);
+      case 'ribbon':
+      case 'rib':
+        return pattern.ribbon(args[0], args[1]);
+      case 'reset':
+        return pattern.reset(args[0]);
+      case 'restart':
+        return pattern.restart(args[0]);
+      case 'stepJoin':
+        return pattern.stepJoin();
+      case 'stepBind':
+        return pattern.stepBind(args[0] as p.Pattern Function(dynamic));
+      case 'range':
+        return pattern.range(args[0], args[1]);
+      case 'range2':
+        return pattern.range2(args[0], args[1]);
+      case 'toBipolar':
+        return pattern.toBipolar();
+      case 'fromBipolar':
+        return pattern.fromBipolar();
+      case 'round':
+        return pattern.round();
+      case 'floor':
+        return pattern.floor();
+      case 'ceil':
+        return pattern.ceil();
+      case 'log2':
+        return pattern.log2();
+      case 'band':
+        return pattern.band(args[0]);
+      case 'brshift':
+        return pattern.brshift(args[0]);
+      case 'shuffle':
+        return s.shuffle(args[0] as int, pattern);
+      case 'scramble':
+        return s.scramble(args[0] as int, pattern);
+      case 'pick':
+        return k.pick(args[0], pattern);
+      case 'pickmod':
+        return k.pickmod(args[0], pattern);
+      case 'pickF':
+        return k.pickF(args[0], args[1] as List<Function>, pattern);
+      case 'pickmodF':
+        return k.pickmodF(args[0], args[1] as List<Function>, pattern);
+      case 'pickOut':
+        return k.pickOut(args[0], pattern);
+      case 'pickmodOut':
+        return k.pickmodOut(args[0], pattern);
+      case 'pickRestart':
+        return k.pickRestart(args[0], pattern);
+      case 'pickmodRestart':
+        return k.pickmodRestart(args[0], pattern);
+      case 'pickReset':
+        return k.pickReset(args[0], pattern);
+      case 'pickmodReset':
+        return k.pickmodReset(args[0], pattern);
+      case 'inhabit':
+      case 'pickSqueeze':
+        return k.inhabit(args[0], pattern);
+      case 'inhabitmod':
+      case 'pickmodSqueeze':
+        return k.inhabitmod(args[0], pattern);
+      case 'squeeze':
+        return k.squeeze(pattern, args[0] as List<dynamic>);
       case 'rev':
         return pattern.rev();
       case 'overlay':
@@ -651,6 +961,29 @@ class StrudelGrammarDefinition extends GrammarDefinition {
         return (pattern as p.Pattern<c.ControlMap>).cutoff(args[0]);
       case 'resonance':
         return (pattern as p.Pattern<c.ControlMap>).resonance(args[0]);
+      case 'distort':
+        return (pattern as p.Pattern<c.ControlMap>).distort(args[0]);
+      case 'FX':
+        return (pattern as p.Pattern<c.ControlMap>).FX(args);
+      case 'worklet':
+        return (pattern as p.Pattern<c.ControlMap>).worklet(
+          args[0] as String,
+          args.sublist(1),
+        );
+      case 'roomsize':
+        return (pattern as p.Pattern<c.ControlMap>).roomsize(args[0]);
+      case 'roomfade':
+        return (pattern as p.Pattern<c.ControlMap>).roomfade(args[0]);
+      case 'roomlp':
+        return (pattern as p.Pattern<c.ControlMap>).roomlp(args[0]);
+      case 'roomdim':
+        return (pattern as p.Pattern<c.ControlMap>).roomdim(args[0]);
+      case 'orbit':
+        return (pattern as p.Pattern<c.ControlMap>).orbit(args[0]);
+      case 'compressor':
+        return (pattern as p.Pattern<c.ControlMap>).compressor(args[0]);
+      case 'clip':
+        return (pattern as p.Pattern<c.ControlMap>).clip(args[0]);
 
       // Wavetable
       case 'wt':
@@ -947,6 +1280,54 @@ class StrudelGrammarDefinition extends GrammarDefinition {
         );
       case 'degradeBy':
         return pattern.degradeBy((args[0] as num).toDouble());
+      case 'degrade':
+        return s.degrade(pattern);
+      case 'undegradeBy':
+        return s.undegradeBy((args[0] as num).toDouble(), pattern);
+      case 'undegrade':
+        return s.undegrade(pattern);
+      case 'seed':
+        return s.seed((args[0] as num).toInt(), pattern);
+      case 'sometimesBy':
+        return s.sometimesBy(
+          p.reify(args[0]),
+          (x) => (args[1] as Function)(x) as p.Pattern,
+          pattern,
+        );
+      case 'sometimes':
+        return s.sometimes(
+          (x) => (args[0] as Function)(x) as p.Pattern,
+          pattern,
+        );
+      case 'someCyclesBy':
+        return s.someCyclesBy(
+          p.reify(args[0]),
+          (x) => (args[1] as Function)(x) as p.Pattern,
+          pattern,
+        );
+      case 'someCycles':
+        return s.someCycles(
+          (x) => (args[0] as Function)(x) as p.Pattern,
+          pattern,
+        );
+      case 'often':
+        return s.often((x) => (args[0] as Function)(x) as p.Pattern, pattern);
+      case 'rarely':
+        return s.rarely((x) => (args[0] as Function)(x) as p.Pattern, pattern);
+      case 'almostNever':
+        return s.almostNever(
+          (x) => (args[0] as Function)(x) as p.Pattern,
+          pattern,
+        );
+      case 'almostAlways':
+        return s.almostAlways(
+          (x) => (args[0] as Function)(x) as p.Pattern,
+          pattern,
+        );
+      case 'never':
+        return s.never((x) => (args[0] as Function)(x) as p.Pattern, pattern);
+      case 'always':
+        return s.always((x) => (args[0] as Function)(x) as p.Pattern, pattern);
       case 'jux':
         // args[0] is function
         return (pattern as p.Pattern<c.ControlMap>).jux(

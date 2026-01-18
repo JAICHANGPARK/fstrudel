@@ -73,6 +73,14 @@ class Hap<T> {
     return {...context, ...other.context, 'locations': locations};
   }
 
+  bool hasTag(String tag) {
+    final tags = context['tags'];
+    if (tags is List) {
+      return tags.contains(tag);
+    }
+    return false;
+  }
+
   @override
   String toString() {
     return '[ ${whole ?? 'cont'} | $part | $value ]';

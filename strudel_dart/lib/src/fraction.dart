@@ -40,6 +40,20 @@ f.Fraction lcm(f.Fraction a, f.Fraction b) {
   return f.Fraction(n, d);
 }
 
+int _lcmInt(int a, int b) => (a ~/ a.gcd(b)) * b;
+
+f.Fraction gcdFraction(f.Fraction a, f.Fraction b) {
+  final n = a.numerator.gcd(b.numerator);
+  final d = _lcmInt(a.denominator, b.denominator);
+  return f.Fraction(n, d);
+}
+
+f.Fraction? gcdMany(Iterable<f.Fraction?> fractions) {
+  final valid = fractions.whereType<f.Fraction>().toList();
+  if (valid.isEmpty) return null;
+  return valid.reduce(gcdFraction);
+}
+
 f.Fraction? lcmMany(Iterable<f.Fraction?> fractions) {
   final valid = fractions.whereType<f.Fraction>();
   if (valid.isEmpty) return null;
