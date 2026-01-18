@@ -75,6 +75,9 @@ class MiniParserDefinition extends GrammarDefinition {
       } else if (type == '@') {
         final weight = _getFactor(arg);
         pat = _WeightedPattern(_extractPattern(pat), weight);
+      } else if (type == 'euclid') {
+        final args = arg as List;
+        pat = _extractPattern(pat).euclid(args[0].toInt(), args[1].toInt());
       }
     }
     return pat;
@@ -91,7 +94,22 @@ class MiniParserDefinition extends GrammarDefinition {
 
   Parser slice() => ref0(subcycle) | ref0(slowcatRule) | ref0(atom);
 
-  Parser op() => (char('*') | char('/') | char('!') | char('@')) & ref0(slice);
+  Parser op() =>
+      ((char('*') | char('/') | char('!') | char('@')) & ref0(slice)) |
+      ref0(euclidOp);
+
+  Parser euclidOp() =>
+      (char('(').trim() &
+              ref0(numberLiteral) &
+              char(',').trim() &
+              ref0(numberLiteral) &
+              char(')').trim())
+          .map(
+            (values) => [
+              'euclid',
+              [values[1], values[3]],
+            ],
+          );
 
   Parser subcycle() =>
       (char('[').trim() & ref0(stackOrSlowcat) & char(']').trim()).map((
@@ -106,6 +124,15 @@ class MiniParserDefinition extends GrammarDefinition {
     if (numValue != null) return pure(numValue);
     return pure(value);
   });
+
+  Parser numberLiteral() =>
+      ((char('-').optional() &
+                  digit().plus() &
+                  (char('.') & digit().plus()).optional()) |
+              (char('.') & digit().plus()))
+          .flatten()
+          .map(num.parse)
+          .trim();
 
   Parser silenceToken() => char('~').flatten().trim();
 

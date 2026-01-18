@@ -4,6 +4,7 @@ import 'fraction.dart';
 import 'hap.dart';
 import 'state.dart';
 import 'timespan.dart';
+import 'bjorklund.dart';
 
 typedef Query<T> = List<Hap<T>> Function(StrudelState state);
 
@@ -136,6 +137,222 @@ class Pattern<T> {
       return haps.where((h) => r.nextDouble() > chance).toList();
     });
   }
+  // Applicative / Monadic
+
+  Pattern<dynamic> appWhole(
+    TimeSpan? Function(TimeSpan?, TimeSpan?) wholeFunc,
+    Pattern other,
+  ) {
+    return Pattern((state) {
+      final hapFuncs = query(state);
+      final hapVals = other.query(state);
+      final List<Hap<dynamic>> results = [];
+
+      for (final hf in hapFuncs) {
+        for (final hv in hapVals) {
+          final s = hf.part.intersection(hv.part);
+          if (s != null) {
+            final val = (hf.value as Function)(hv.value);
+            results.add(
+              Hap(
+                wholeFunc(hf.whole, hv.whole),
+                s,
+                val,
+                context: hv.combineContext(hf),
+              ),
+            );
+          }
+        }
+      }
+      return results;
+    }, steps: _steps); // TODO: lcm of steps?
+  }
+
+  Pattern<dynamic> appBoth(Pattern other) {
+    return appWhole((a, b) {
+      if (a == null || b == null) return null;
+      return a.intersection(b);
+    }, other);
+  }
+
+  Pattern<dynamic> appLeft(Pattern other) {
+    return Pattern((state) {
+      final haps = <Hap<dynamic>>[];
+      for (final hf in query(state)) {
+        final hapVals = other.query(state.setSpan(hf.wholeOrPart()));
+        for (final hv in hapVals) {
+          final newPart = hf.part.intersection(hv.part);
+          if (newPart != null) {
+            final val = (hf.value as Function)(hv.value);
+            haps.add(
+              Hap(hf.whole, newPart, val, context: hv.combineContext(hf)),
+            );
+          }
+        }
+      }
+      return haps;
+    }, steps: _steps);
+  }
+
+  Pattern<dynamic> appRight(Pattern other) {
+    return Pattern((state) {
+      final haps = <Hap<dynamic>>[];
+      for (final hv in other.query(state)) {
+        final hapFuncs = query(state.setSpan(hv.wholeOrPart()));
+        for (final hf in hapFuncs) {
+          final newPart = hf.part.intersection(hv.part);
+          if (newPart != null) {
+            final val = (hf.value as Function)(hv.value);
+            haps.add(
+              Hap(hv.whole, newPart, val, context: hv.combineContext(hf)),
+            );
+          }
+        }
+      }
+      return haps;
+    }, steps: other.steps);
+  }
+
+  // Monadic
+
+  Pattern<dynamic> bindWhole(
+    TimeSpan? Function(TimeSpan?, TimeSpan?) chooseWhole,
+    Pattern Function(T) func,
+  ) {
+    return Pattern((state) {
+      final haps = query(state);
+      final List<Hap<dynamic>> results = [];
+      for (final h in haps) {
+        final innerPat = func(h.value);
+        final innerHaps = innerPat.query(state.setSpan(h.part));
+        for (final inh in innerHaps) {
+          results.add(
+            Hap(
+              chooseWhole(h.whole, inh.whole),
+              inh.part,
+              inh.value,
+              context: h.combineContext(inh),
+            ),
+          );
+        }
+      }
+      return results;
+    }, steps: _steps);
+  }
+
+  Pattern<dynamic> outerBind(Pattern Function(T) func) {
+    return bindWhole((a, b) => a, func).setSteps(steps ?? fraction(1));
+  }
+
+  Pattern<dynamic> outerJoin() => outerBind((x) => x as Pattern);
+
+  Pattern<dynamic> innerBind(Pattern Function(T) func) {
+    return bindWhole((a, b) => b, func);
+  }
+
+  Pattern<dynamic> innerJoin() => innerBind((x) => x as Pattern);
+
+  Pattern<dynamic> bind(Pattern Function(T) func) {
+    return bindWhole((a, b) {
+      if (a == null || b == null) return null;
+      return a.intersection(b);
+    }, func);
+  }
+
+  Pattern<dynamic> join() => bind((x) => x as Pattern);
+
+  // Arithmetic
+
+  Pattern<dynamic> _opIn(
+    dynamic other,
+    dynamic Function(dynamic) Function(dynamic) op,
+  ) {
+    return map(op).appLeft(reify(other));
+  }
+
+  Pattern<dynamic> add(dynamic other) => _opIn(
+    other,
+    (a) => (b) {
+      if (a is Map && b is Map) return {...a, ...b};
+      if (a is num && b is num) return a + b;
+      if (a is String && b is String) return a + b;
+      return a; // fallback?
+    },
+  );
+
+  Pattern<dynamic> sub(dynamic other) => _opIn(
+    other,
+    (a) => (b) {
+      if (a is num && b is num) return a - b;
+      return a;
+    },
+  );
+
+  Pattern<dynamic> mul(dynamic other) => _opIn(
+    other,
+    (a) => (b) {
+      if (a is num && b is num) return a * b;
+      return a;
+    },
+  );
+
+  Pattern<dynamic> div(dynamic other) => _opIn(
+    other,
+    (a) => (b) {
+      if (a is num && b is num) return a / b;
+      return a;
+    },
+  );
+
+  Pattern<dynamic> mod(dynamic other) => _opIn(
+    other,
+    (a) => (b) {
+      if (a is num && b is num) return a % b;
+      return a;
+    },
+  );
+
+  Pattern<dynamic> layer(List<Pattern Function(Pattern)> funcs) {
+    return stack(funcs.map((f) => f(this)).toList());
+  }
+
+  // Structure
+  Pattern<R> cast<R>() {
+    return Pattern((state) {
+      return query(state)
+          .map(
+            (h) => Hap<R>(
+              h.whole,
+              h.part,
+              h.value as R,
+              context: h.context,
+              stateful: h.stateful,
+              scheduledTime: h.scheduledTime,
+            ),
+          )
+          .toList();
+    }, steps: _steps);
+  }
+
+  // Structure
+  Pattern<T> struct(Pattern structure) {
+    return structure.bind((v) {
+      bool isTrue = false;
+      if (v is num && v != 0) isTrue = true;
+      if (v is bool && v) isTrue = true;
+      if (v is String && v != '~' && v != '') isTrue = true;
+
+      if (isTrue) return this;
+      return silence.cast<T>();
+    }).cast<T>();
+  }
+
+  Pattern<T> mask(Pattern structure) => struct(structure);
+
+  Pattern<T> euclid(int k, int n) {
+    final seq = bjorklund(k, n);
+    return struct(sequence(seq));
+  }
 }
 
 Pattern<R> sequence<R>(List<dynamic> pats) => fastcat<R>(pats);
@@ -199,6 +416,8 @@ Pattern<T> stack<T>(List<dynamic> pats) {
   final steps = lcmMany(reifiedPats.map((p) => p.steps));
   return Pattern(query, steps: steps);
 }
+
+Pattern<int> euclid(int k, int n) => sequence(bjorklund(k, n));
 
 Pattern<T> reify<T>(dynamic thing) {
   if (thing is Pattern<T>) return thing;
