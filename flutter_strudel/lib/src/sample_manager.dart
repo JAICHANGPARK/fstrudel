@@ -1,17 +1,41 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 
+class SampleBank {
+  final List<String>? urls;
+  final Map<String, List<String>>? pitched;
+
+  const SampleBank.list(this.urls) : pitched = null;
+  const SampleBank.pitched(this.pitched) : urls = null;
+
+  bool get isPitched => pitched != null;
+}
+
 class SampleManager {
+  static const List<String> _defaultSampleMapUrls = [
+    'https://raw.githubusercontent.com/felixroos/dough-samples/main/tidal-drum-machines.json',
+    'https://raw.githubusercontent.com/felixroos/dough-samples/main/piano.json',
+    'https://raw.githubusercontent.com/felixroos/dough-samples/main/Dirt-Samples.json',
+    'https://raw.githubusercontent.com/felixroos/dough-samples/main/vcsl.json',
+    'https://raw.githubusercontent.com/felixroos/dough-samples/main/mridangam.json',
+    'https://raw.githubusercontent.com/tidalcycles/uzu-drumkit/main/strudel.json',
+  ];
+
+  static const String _defaultAliasBankUrl =
+      'https://raw.githubusercontent.com/todepond/samples/main/tidal-drum-machines-alias.json';
+
   static const String _drumMachinesBaseUrl =
       'https://raw.githubusercontent.com/ritchse/tidal-drum-machines/main/machines/';
   static const String _dirtSamplesBaseUrl =
       'https://strudel.b-cdn.net/Dirt-Samples/';
 
-  // Mappings for common banks and sounds
+  // Fallback mappings for common banks and sounds.
   // Format: {bank_sound: path_suffix}
-  static const Map<String, List<String>> _sampleMap = {
+  static const Map<String, List<String>> _legacySampleMap = {
     // Default mappings (fallbacks for no bank) - using RolandTR909 as base per documentation
     'bd': ['RolandTR909/rolandtr909-bd/Bassdrum-01.wav'],
     'kick': ['RolandTR909/rolandtr909-bd/Bassdrum-01.wav'],
@@ -115,18 +139,386 @@ class SampleManager {
     'misc': ['misc/000_misc.wav'],
   };
 
+  final Map<String, SampleBank> _banks = {};
+  final Map<String, String> _aliasToBank = {};
+  final Map<String, List<String>> _bankAliases = {};
   final Map<String, String> _cache = {};
+  Future<void>? _initFuture;
 
-  Future<String?> getSamplePath(String sound, {String? bank, int n = 0}) async {
+  Future<void> initializeDefaults() {
+    _initFuture ??= _initializeDefaults();
+    return _initFuture!;
+  }
+
+  Future<void> _initializeDefaults() async {
+    for (final url in _defaultSampleMapUrls) {
+      await _addSampleMapFromUrl(url);
+    }
+    await _loadAliasBankMap(_defaultAliasBankUrl);
+    _applyBankAliases();
+  }
+
+  Future<String?> getSamplePath(
+    String sound, {
+    String? bank,
+    int n = 0,
+    dynamic note,
+    dynamic freq,
+  }) async {
+    await initializeDefaults();
+    String normalizedSound = _normalizeSoundKey(sound);
+    final colonIndex = normalizedSound.indexOf(':');
+    if (colonIndex != -1 && n == 0) {
+      final maybeIndex = int.tryParse(normalizedSound.substring(colonIndex + 1));
+      if (maybeIndex != null) {
+        n = maybeIndex;
+        normalizedSound = normalizedSound.substring(0, colonIndex);
+      }
+    }
+
+    String? resolvedKey;
+    if (bank != null && bank.trim().isNotEmpty) {
+      final normalizedBank = _normalizeSoundKey(bank);
+      final canonicalBank = _aliasToBank[normalizedBank] ?? normalizedBank;
+      final bankKey = '${canonicalBank}_$normalizedSound';
+      if (_banks.containsKey(bankKey)) {
+        resolvedKey = bankKey;
+      } else {
+        final rawBankKey = '${normalizedBank}_$normalizedSound';
+        if (_banks.containsKey(rawBankKey)) {
+          resolvedKey = rawBankKey;
+        }
+      }
+    }
+    resolvedKey ??= normalizedSound;
+
+    final bankData = _banks[resolvedKey];
+    if (bankData == null) {
+      return _getLegacySamplePath(normalizedSound, bank: bank, n: n);
+    }
+
+    final url = _selectUrl(bankData, n, note: note, freq: freq);
+    if (url == null) {
+      print('SampleManager: No sample URL found for $resolvedKey');
+      return null;
+    }
+
+    if (_cache.containsKey(url)) {
+      return _cache[url];
+    }
+
+    // Check local storage
+    final file = await _getLocalFileForUrl(url);
+    if (await file.exists()) {
+      _cache[url] = file.path;
+      return file.path;
+    }
+
+    // Download
+    try {
+      print('SampleManager: Downloading $url...');
+      final response = await http.get(Uri.parse(url));
+      if (response.statusCode == 200) {
+        await file.parent.create(recursive: true);
+        await file.writeAsBytes(response.bodyBytes);
+        _cache[url] = file.path;
+        print('SampleManager: Downloaded and cached $resolvedKey');
+        return file.path;
+      } else {
+        print(
+          'SampleManager: Download failed (${response.statusCode}) for $url',
+        );
+      }
+    } catch (e) {
+      print('SampleManager: Error downloading sample: $e');
+    }
+
+    return null;
+  }
+
+  String? _selectUrl(
+    SampleBank bankData,
+    int n, {
+    dynamic note,
+    dynamic freq,
+  }) {
+    if (bankData.isPitched) {
+      final pitched = bankData.pitched!;
+      if (pitched.isEmpty) return null;
+      final closestKey = _closestPitchKey(
+        pitched.keys.toList(),
+        n: n,
+        note: note,
+        freq: freq,
+      );
+      final urls = pitched[closestKey];
+      if (urls == null || urls.isEmpty) return null;
+      return urls[n % urls.length];
+    }
+    final urls = bankData.urls ?? [];
+    if (urls.isEmpty) return null;
+    return urls[n % urls.length];
+  }
+
+  String _closestPitchKey(
+    List<String> keys, {
+    int n = 0,
+    dynamic note,
+    dynamic freq,
+  }) {
+    final normalized = keys.map((k) => k.toLowerCase()).toList();
+    final targetMidi = _valueToMidi(note, freq, fallback: 36);
+    double bestDiff = double.infinity;
+    String bestKey = normalized.first;
+    for (final key in normalized) {
+      final midi = _noteToMidi(key, fallback: null);
+      if (midi == null) continue;
+      final diff = (midi - targetMidi).abs();
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        bestKey = key;
+      }
+    }
+    return bestKey;
+  }
+
+  double _valueToMidi(dynamic note, dynamic freq, {required double fallback}) {
+    if (freq is num && freq > 0) {
+      return _freqToMidi(freq.toDouble());
+    }
+    if (note is num) {
+      return note.toDouble();
+    }
+    if (note is String) {
+      final midi = _noteToMidi(note, fallback: fallback.toInt());
+      if (midi != null) return midi.toDouble();
+    }
+    return fallback;
+  }
+
+  double _freqToMidi(double freq) {
+    return (12 * (math.log(freq / 440) / math.ln2)) + 69;
+  }
+
+  int? _noteToMidi(String note, {int? fallback}) {
+    final match = RegExp(r'^([a-gA-G])([#bsf]*)(-?[0-9]*)$').firstMatch(
+      note.trim(),
+    );
+    if (match == null) return fallback;
+    final pc = match.group(1);
+    final acc = match.group(2) ?? '';
+    final octText = match.group(3);
+    if (pc == null) return fallback;
+    final chromas = {
+      'c': 0,
+      'd': 2,
+      'e': 4,
+      'f': 5,
+      'g': 7,
+      'a': 9,
+      'b': 11,
+    };
+    final accs = {'#': 1, 'b': -1, 's': 1, 'f': -1};
+    final octave = octText == null || octText.isEmpty
+        ? 3
+        : int.tryParse(octText) ?? 3;
+    final chroma = chromas[pc.toLowerCase()];
+    if (chroma == null) return fallback;
+    int offset = 0;
+    for (final char in acc.split('')) {
+      offset += accs[char] ?? 0;
+    }
+    return (octave + 1) * 12 + chroma + offset;
+  }
+
+  Future<void> _addSampleMapFromUrl(String url) async {
+    try {
+      final response = await http.get(Uri.parse(url));
+      if (response.statusCode != 200) {
+        print('SampleManager: Failed to load sample map $url');
+        return;
+      }
+      final jsonBody = jsonDecode(response.body);
+      if (jsonBody is! Map<String, dynamic>) {
+        print('SampleManager: Invalid sample map format: $url');
+        return;
+      }
+      _addSampleMap(jsonBody, _baseFromUrl(url));
+    } catch (e) {
+      print('SampleManager: Error loading sample map $url: $e');
+    }
+  }
+
+  void _addSampleMap(Map<String, dynamic> sampleMap, String baseUrl) {
+    final dynamic baseOverride = sampleMap['_base'];
+    final String mapBase =
+        baseOverride is String ? baseOverride : baseUrl;
+    for (final entry in sampleMap.entries) {
+      if (entry.key == '_base') continue;
+      _addSampleEntry(entry.key, entry.value, mapBase);
+    }
+  }
+
+  void _addSampleEntry(String key, dynamic value, String baseUrl) {
+    String entryBase = baseUrl;
+    if (value is Map && value['_base'] is String) {
+      entryBase = value['_base'] as String;
+    }
+    entryBase = _ensureTrailingSlash(entryBase);
+    final normalizedKey = _normalizeSoundKey(key);
+
+    if (value is String) {
+      _banks[normalizedKey] =
+          SampleBank.list([_resolveUrl(entryBase, value)]);
+      return;
+    }
+
+    if (value is List) {
+      final urls = value
+          .whereType<String>()
+          .map((path) => _resolveUrl(entryBase, path))
+          .toList();
+      if (urls.isNotEmpty) {
+        _banks[normalizedKey] = SampleBank.list(urls);
+      }
+      return;
+    }
+
+    if (value is Map) {
+      final entries = value.entries.where((e) => e.key != '_base').toList();
+      if (entries.isEmpty) return;
+
+      if (_isNoteMap(entries.map((e) => e.key.toString()).toList())) {
+        final pitched = <String, List<String>>{};
+        for (final noteEntry in entries) {
+          final noteKey = noteEntry.key.toLowerCase();
+          final noteValue = noteEntry.value;
+          if (noteValue is String) {
+            pitched[noteKey] = [_resolveUrl(entryBase, noteValue)];
+          } else if (noteValue is List) {
+            final urls = noteValue
+                .whereType<String>()
+                .map((path) => _resolveUrl(entryBase, path))
+                .toList();
+            if (urls.isNotEmpty) {
+              pitched[noteKey] = urls;
+            }
+          }
+        }
+        if (pitched.isNotEmpty) {
+          _banks[normalizedKey] = SampleBank.pitched(pitched);
+        }
+        return;
+      }
+
+      for (final soundEntry in entries) {
+        _addSampleEntry('${key}_${soundEntry.key}', soundEntry.value, entryBase);
+      }
+    }
+  }
+
+  Future<void> _loadAliasBankMap(String url) async {
+    try {
+      final response = await http.get(Uri.parse(url));
+      if (response.statusCode != 200) {
+        print('SampleManager: Failed to load alias bank map $url');
+        return;
+      }
+      final jsonBody = jsonDecode(response.body);
+      if (jsonBody is! Map<String, dynamic>) {
+        print('SampleManager: Invalid alias bank format: $url');
+        return;
+      }
+      for (final entry in jsonBody.entries) {
+        final bank = _normalizeSoundKey(entry.key);
+        final aliases = <String>[];
+        final value = entry.value;
+        if (value is String) {
+          aliases.add(_normalizeSoundKey(value));
+        } else if (value is List) {
+          aliases.addAll(
+            value.whereType<String>().map(_normalizeSoundKey),
+          );
+        }
+        _bankAliases[bank] = aliases;
+        _aliasToBank[bank] = bank;
+        for (final alias in aliases) {
+          _aliasToBank[alias] = bank;
+        }
+      }
+    } catch (e) {
+      print('SampleManager: Error loading alias bank map $url: $e');
+    }
+  }
+
+  void _applyBankAliases() {
+    if (_bankAliases.isEmpty) return;
+    final entries = Map<String, SampleBank>.from(_banks);
+    for (final entry in entries.entries) {
+      final key = entry.key;
+      final splitIndex = key.indexOf('_');
+      if (splitIndex == -1) continue;
+      final bank = key.substring(0, splitIndex);
+      final suffix = key.substring(splitIndex + 1);
+      final aliases = _bankAliases[bank];
+      if (aliases == null) continue;
+      for (final alias in aliases) {
+        final aliasKey = '${alias}_$suffix';
+        _banks.putIfAbsent(aliasKey, () => entry.value);
+      }
+    }
+  }
+
+  String _normalizeSoundKey(String key) {
+    return key.trim().toLowerCase().replaceAll(RegExp(r'\s+'), '_');
+  }
+
+  bool _isNoteMap(List<String> keys) {
+    final noteRegex = RegExp(r'^([a-gA-G])([#bsf]*)(-?[0-9]*)$');
+    return keys.isNotEmpty && keys.every((k) => noteRegex.hasMatch(k));
+  }
+
+  String _resolveUrl(String base, String path) {
+    final schemeMatch = RegExp(r'^[a-zA-Z][a-zA-Z0-9+.-]*:');
+    if (schemeMatch.hasMatch(path)) {
+      return path;
+    }
+    return '${_ensureTrailingSlash(base)}$path';
+  }
+
+  String _baseFromUrl(String url) {
+    final uri = Uri.parse(url);
+    final segments = uri.pathSegments.toList();
+    if (segments.isNotEmpty) {
+      segments.removeLast();
+    }
+    final baseUri = uri.replace(pathSegments: segments, query: '');
+    return _ensureTrailingSlash(baseUri.toString());
+  }
+
+  String _ensureTrailingSlash(String base) {
+    if (base.isEmpty) return base;
+    return base.endsWith('/') ? base : '$base/';
+  }
+
+  Future<String?> _getLegacySamplePath(
+    String sound, {
+    String? bank,
+    int n = 0,
+  }) async {
     String key;
     if (bank != null && bank.isNotEmpty) {
-      // Normalize bank names (strudel often uses lowercase or shorthands)
       String normalizedBank = bank;
-      if (bank.toLowerCase() == 'tr909' || bank.toLowerCase() == '909') {
+      final bankLower = bank.toLowerCase();
+      if (bankLower == 'tr909' ||
+          bankLower == '909' ||
+          bankLower == 'rolandtr909') {
         normalizedBank = 'RolandTR909';
-      } else if (bank.toLowerCase() == 'tr808' || bank.toLowerCase() == '808') {
+      } else if (bankLower == 'tr808' ||
+          bankLower == '808' ||
+          bankLower == 'rolandtr808') {
         normalizedBank = 'RolandTR808';
-      } else if (bank.toLowerCase() == 'jazz') {
+      } else if (bankLower == 'jazz') {
         normalizedBank = 'jazz';
       }
       key = '${normalizedBank}_$sound';
@@ -134,15 +526,14 @@ class SampleManager {
       key = sound;
     }
 
-    if (!_sampleMap.containsKey(key)) {
+    if (!_legacySampleMap.containsKey(key)) {
       print('SampleManager: No mapping found for $key');
       return null;
     }
 
-    final paths = _sampleMap[key]!;
+    final paths = _legacySampleMap[key]!;
     final pathSuffix = paths[n % paths.length];
 
-    // Determine base URL based on the path prefix
     String baseUrl = _drumMachinesBaseUrl;
     if (pathSuffix.startsWith('jazz/') ||
         pathSuffix.startsWith('casio/') ||
@@ -163,14 +554,12 @@ class SampleManager {
       return _cache[url];
     }
 
-    // Check local storage
     final file = await _getLocalFile(pathSuffix);
     if (await file.exists()) {
       _cache[url] = file.path;
       return file.path;
     }
 
-    // Download
     try {
       print('SampleManager: Downloading $url...');
       final response = await http.get(Uri.parse(url));
@@ -196,5 +585,17 @@ class SampleManager {
     final cacheDir = await getTemporaryDirectory();
     final localPath = p.join(cacheDir.path, 'strudel_cache', pathSuffix);
     return File(localPath);
+  }
+
+  Future<File> _getLocalFileForUrl(String url) async {
+    final uri = Uri.tryParse(url);
+    String pathSuffix;
+    if (uri != null && uri.path.isNotEmpty) {
+      pathSuffix =
+          uri.path.startsWith('/') ? uri.path.substring(1) : uri.path;
+    } else {
+      pathSuffix = base64Url.encode(utf8.encode(url));
+    }
+    return _getLocalFile(pathSuffix);
   }
 }
