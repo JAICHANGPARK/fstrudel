@@ -10,11 +10,13 @@ dependencies:
   flutter:
     sdk: flutter
   http: ^1.6.0
-  just_audio: ^0.10.5
   path_provider: ^2.1.5
   path: ^1.9.1
   strudel_dart:
     path: ../strudel_dart
+  flutter_soloud: ^3.4.8
+  js: ^0.7.1
+  web: ^1.1.1
 
 dev_dependencies:
   flutter_test:
