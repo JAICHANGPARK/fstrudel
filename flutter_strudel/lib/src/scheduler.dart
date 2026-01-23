@@ -87,6 +87,14 @@ class StrudelScheduler {
           stateful: hap.stateful,
           scheduledTime: scheduledTime,
         );
+        final trigger = timedHap.context['onTrigger'];
+        if (trigger is Function) {
+          final nowSeconds =
+              DateTime.now().millisecondsSinceEpoch / 1000.0;
+          final targetSeconds =
+              scheduledTime.millisecondsSinceEpoch / 1000.0;
+          Function.apply(trigger, [timedHap, nowSeconds, cps, targetSeconds]);
+        }
         _hapController.add(timedHap);
       }
       _lastQueryEndCycle = queryEndCycle;
