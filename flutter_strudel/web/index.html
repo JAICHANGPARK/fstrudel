@@ -33,6 +33,25 @@
   <link rel="manifest" href="manifest.json">
 </head>
 <body>
+  <script type="importmap">
+    {
+      "imports": {
+        "@strudel/core": "https://esm.sh/@strudel/core@1.2.6",
+        "@strudel/mini": "https://esm.sh/@strudel/mini@1.2.6",
+        "@strudel/webaudio": "https://esm.sh/@strudel/webaudio@1.2.6",
+        "@strudel/tonal": "https://esm.sh/@strudel/tonal@1.2.6",
+        "@strudel/transpiler": "https://esm.sh/@strudel/transpiler@1.2.6",
+        "@strudel/draw": "https://esm.sh/@strudel/draw@1.2.6",
+        "@strudel/soundfonts": "https://esm.sh/@strudel/soundfonts@1.2.6?deps=soundfont2@0.5.0&target=es2022",
+        "superdough": "https://esm.sh/superdough@1.2.6",
+        "supradough": "https://esm.sh/supradough@1.2.6",
+        "soundfont2": "https://esm.sh/soundfont2@0.5.0?target=es2022",
+        "/soundfont2@^0.4.0?target=es2022": "https://esm.sh/soundfont2@0.5.0?target=es2022",
+        "/soundfont2@0.4.0?target=es2022": "https://esm.sh/soundfont2@0.5.0?target=es2022"
+      }
+    }
+  </script>
+  <script type="module" src="strudel_bridge.js"></script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>
