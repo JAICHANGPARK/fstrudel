@@ -1,8 +1,13 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:strudel_dart/strudel_dart.dart';
 import 'package:flutter_strudel/src/scheduler.dart';
 import 'package:flutter_strudel/src/audio_engine.dart';
+import 'package:flutter_strudel/src/web_draw_canvas_stub.dart'
+    if (dart.library.js_interop) 'package:flutter_strudel/src/web_draw_canvas.dart';
+import 'package:flutter_strudel/src/web_strudel_iframe_stub.dart'
+    if (dart.library.js_interop) 'package:flutter_strudel/src/web_strudel_iframe.dart';
 
 void main() {
   runApp(const StrudelApp());
@@ -48,6 +53,9 @@ class _StrudelHomeState extends State<StrudelHome> {
   final ValueNotifier<Set<String>> _activeSoundsNotifier =
       ValueNotifier<Set<String>>({});
   final Map<String, Timer> _soundTimers = {};
+
+  bool _audioReady = false;
+  String? _audioInitError;
 
   DateTime _lastLogTime = DateTime.fromMillisecondsSinceEpoch(0);
   final List<String> _pendingLogs = [];
@@ -106,34 +114,64 @@ class _StrudelHomeState extends State<StrudelHome> {
       },
     );
 
-    print('MainUI: Initializing AudioEngine...');
-    _audioEngine
-        .init()
-        .then((_) {
-          print('MainUI: AudioEngine initialized.');
-        })
-        .catchError((e) {
-          print('MainUI: AudioEngine initialization failed: $e');
-        });
+    _audioReady = kIsWeb;
+    if (!kIsWeb) {
+      print('MainUI: Initializing AudioEngine...');
+      _audioEngine
+          .init()
+          .then((_) {
+            print('MainUI: AudioEngine initialized.');
+            if (mounted) {
+              setState(() {
+                _audioReady = true;
+              });
+            }
+          })
+          .catchError((e) {
+            print('MainUI: AudioEngine initialization failed: $e');
+            if (mounted) {
+              setState(() {
+                _audioInitError = e.toString();
+              });
+            }
+          });
+    }
 
-    _scheduler.haps.listen((hap) {
-      print('MainUI: Event received: $hap');
-      _audioEngine.play(hap);
+    if (!kIsWeb) {
+      _scheduler.haps.listen((hap) {
+        print('MainUI: Event received: $hap');
+        _audioEngine.play(hap);
 
-      // Extract sound name for visualization
-      if (hap.value is Map) {
-        final sound = hap.value['s'] as String?;
-        if (sound != null) {
-          _activateSound(sound);
+        // Extract sound name for visualization
+        if (hap.value is Map) {
+          final sound = hap.value['s'] as String?;
+          if (sound != null) {
+            _activateSound(sound);
+          }
         }
-      }
 
-      _log('Event: $hap');
-    });
+        _log('Event: $hap');
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    if (kIsWeb) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Flutter Strudel'),
+          backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        ),
+        body: const Padding(
+          padding: EdgeInsets.all(16.0),
+          child: SizedBox.expand(
+            child: StrudelIframeEmbed(src: 'https://strudel.cc/'),
+          ),
+        ),
+      );
+    }
+    final canPlay = _audioReady && _audioInitError == null;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Flutter Strudel'),
@@ -167,6 +205,24 @@ class _StrudelHomeState extends State<StrudelHome> {
               ),
             ),
             const SizedBox(height: 12),
+            SizedBox(
+              height: 160,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.black,
+                    border: Border.all(color: Colors.deepPurple.shade800),
+                  ),
+                  child: const StrudelScopeCanvas(),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            if (!kIsWeb) ...[
+              _buildAudioStatus(),
+              const SizedBox(height: 12),
+            ],
 
             // Active Sounds Visualizer
             ValueListenableBuilder<Set<String>>(
@@ -201,18 +257,27 @@ class _StrudelHomeState extends State<StrudelHome> {
             Row(
               children: [
                 ElevatedButton.icon(
-                  onPressed: () {
-                    try {
-                      final pattern = _repl.evaluate(_controller.text);
-                      _scheduler.play(pattern);
-                      _log("Playing pattern...");
-                    } catch (e) {
-                      _log("Error: $e");
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: SelectableText(e.toString())),
-                      );
-                    }
-                  },
+                  onPressed: canPlay
+                      ? () async {
+                          try {
+                            if (kIsWeb) {
+                              await _audioEngine.evalCode(_controller.text);
+                              _log("Playing pattern (web)...");
+                            } else {
+                              final pattern = _repl.evaluate(_controller.text);
+                              _scheduler.play(pattern);
+                              _log("Playing pattern...");
+                            }
+                          } catch (e) {
+                            _log("Error: $e");
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: SelectableText(e.toString()),
+                              ),
+                            );
+                          }
+                        }
+                      : null,
                   icon: const Icon(Icons.play_arrow),
                   label: const Text('Play'),
                   style: ElevatedButton.styleFrom(
@@ -223,7 +288,9 @@ class _StrudelHomeState extends State<StrudelHome> {
                 const SizedBox(width: 8),
                 ElevatedButton.icon(
                   onPressed: () {
-                    _scheduler.stop();
+                    if (!kIsWeb) {
+                      _scheduler.stop();
+                    }
                     _audioEngine.stopAll();
                     _activeSoundsNotifier.value = {};
                     _log("Stopped.");
@@ -387,6 +454,57 @@ class _StrudelHomeState extends State<StrudelHome> {
       default:
         return Colors.deepPurple.shade400;
     }
+  }
+
+  Widget _buildAudioStatus() {
+    if (_audioInitError != null) {
+      return Row(
+        children: [
+          Icon(Icons.error, size: 16, color: Colors.red.shade300),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              'Audio init failed: $_audioInitError',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.red.shade300,
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+    if (!_audioReady) {
+      return Row(
+        children: [
+          SizedBox(
+            width: 12,
+            height: 12,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              valueColor: AlwaysStoppedAnimation<Color>(
+                Colors.deepPurple.shade200,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            'Loading audio engine...',
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
+          ),
+        ],
+      );
+    }
+    return Row(
+      children: [
+        Icon(Icons.check_circle, size: 16, color: Colors.green.shade300),
+        const SizedBox(width: 6),
+        Text(
+          'Audio ready',
+          style: TextStyle(fontSize: 12, color: Colors.green.shade300),
+        ),
+      ],
+    );
   }
 
   @override
