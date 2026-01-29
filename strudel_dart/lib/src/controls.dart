@@ -8,7 +8,10 @@ Pattern<ControlMap> createParam(String name, dynamic value) {
   return reify(value).map((v) => {name: v});
 }
 
-Pattern<ControlMap> s(dynamic value) => createParam('s', _reifyString(value));
+Pattern<ControlMap> s(dynamic value) {
+  final parsed = _reifyString(value);
+  return reify(parsed).map(_soundControlFromValue);
+}
 Pattern<ControlMap> n(dynamic value) => createParam('n', _reifyString(value));
 Pattern<ControlMap> note(dynamic value) =>
     createParam('note', _reifyString(value));
@@ -304,6 +307,49 @@ dynamic _reifyString(dynamic value) {
     }
   }
 
+  return value;
+}
+
+dynamic reifyString(dynamic value) {
+  return _reifyString(value);
+}
+
+ControlMap _soundControlFromValue(dynamic value) {
+  if (value is Map<String, dynamic>) return value;
+
+  if (value is List) {
+    final map = <String, dynamic>{};
+    if (value.isNotEmpty) map['s'] = value[0];
+    if (value.length > 1) map['n'] = _maybeNum(value[1]);
+    if (value.length > 2) map['gain'] = _maybeNum(value[2]);
+    return map;
+  }
+
+  if (value is String) {
+    final parts = value.split(':');
+    if (parts.length >= 2) {
+      final nVal = _maybeNum(parts[1]);
+      if (nVal is num) {
+        final map = <String, dynamic>{'s': parts[0], 'n': nVal};
+        if (parts.length > 2) {
+          final gainVal = _maybeNum(parts[2]);
+          if (gainVal != null) map['gain'] = gainVal;
+        }
+        return map;
+      }
+    }
+    return {'s': value};
+  }
+
+  return {'s': value};
+}
+
+dynamic _maybeNum(dynamic value) {
+  if (value is num) return value;
+  if (value is String) {
+    final parsed = num.tryParse(value);
+    if (parsed != null) return parsed;
+  }
   return value;
 }
 

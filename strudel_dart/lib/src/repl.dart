@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:petitparser/petitparser.dart';
 import 'controls.dart' as c;
 import 'pattern.dart' as p;
@@ -5,6 +6,10 @@ import 'bjorklund.dart' as b;
 import 'signal.dart' as s;
 import 'pick.dart' as k;
 import 'speak.dart' as sp;
+import 'resources.dart';
+import 'visuals.dart';
+import 'logger.dart';
+import 'tonal.dart';
 
 class StrudelREPL {
   late final Parser _parser;
@@ -175,7 +180,7 @@ class StrudelGrammarDefinition extends GrammarDefinition {
           .trim();
 
   Parser identifier() =>
-      (letter() & (word() | char('_')).star()).flatten().trim();
+      ((letter() | char('_')) & (word() | char('_')).star()).flatten().trim();
 
   dynamic _resolveIdentifier(String name) {
     switch (name) {
@@ -197,6 +202,31 @@ class StrudelGrammarDefinition extends GrammarDefinition {
         return c.n(args.isEmpty ? '' : args[0]);
       case 'note':
         return c.note(args.isEmpty ? '' : args[0]);
+      case 'samples':
+        final sampleMap = args.isNotEmpty ? args[0] : '';
+        final baseUrl =
+            args.length > 1 && args[1] != null ? args[1].toString() : null;
+        _fireAndForget(
+          StrudelResources.onSamples?.call(
+            sampleMap,
+            baseUrl: baseUrl,
+          ),
+          'samples',
+        );
+        return p.silence;
+      case 'tables':
+        final source = args.isNotEmpty ? args[0] : '';
+        final frameLen = args.length > 1 && args[1] is num
+            ? (args[1] as num).toInt()
+            : null;
+        _fireAndForget(
+          StrudelResources.onTables?.call(
+            source,
+            frameLen: frameLen,
+          ),
+          'tables',
+        );
+        return p.silence;
       case 'gain':
         return c.gain(args.isEmpty ? 1.0 : args[0]);
       case 'pan':
@@ -330,6 +360,10 @@ class StrudelGrammarDefinition extends GrammarDefinition {
         return k.inhabitmod(args[0], args[1] as p.Pattern);
       case 'squeeze':
         return k.squeeze(args[0] as p.Pattern, args[1] as List<dynamic>);
+      case 'arpWith':
+        return (args[1] as p.Pattern).arpWith(args[0] as Function);
+      case 'arp':
+        return (args[1] as p.Pattern).arp(args[0]);
       case 'stack':
         return p.stack(args);
       case 'sequence':
@@ -726,20 +760,40 @@ class StrudelGrammarDefinition extends GrammarDefinition {
         }
         return p.sequence(b.bjorklund(args[0], args[1]));
       default:
-        throw Exception('Unknown function: $name');
+        throw Exception(_unsupportedMessage('function', name));
     }
   }
 
   dynamic _invokeMethod(dynamic receiver, String name, List args) {
     if (receiver is! p.Pattern) {
-      // If it's a literal, we can't call methods on it in this simple REPL
-      // unless we promote it to a Pattern.
-      receiver = p.reify(receiver);
+      // If it's a literal, promote it to a Pattern. Strings get mini-notation
+      // parsing so chained methods like ".fast" work as in Strudel.
+      if (receiver is String) {
+        final parsed = c.reifyString(receiver);
+        receiver = parsed is p.Pattern ? parsed : p.reify(parsed);
+      } else {
+        receiver = p.reify(receiver);
+      }
     }
 
     final dynamic pattern = receiver;
 
     switch (name) {
+      case '_scope':
+      case 'scope':
+      case '_punchcard':
+      case 'punchcard':
+      case '_pianoroll':
+      case 'pianoroll':
+      case '_spiral':
+      case 'spiral':
+      case '_pitchwheel':
+      case 'pitchwheel':
+      case '_spectrum':
+      case 'spectrum':
+      case '_markcss':
+      case 'markcss':
+        return _handleVisual(pattern, name, args);
       case 's':
       case 'sound':
         return (pattern as p.Pattern<c.ControlMap>).s(args[0]);
@@ -747,6 +801,8 @@ class StrudelGrammarDefinition extends GrammarDefinition {
         return (pattern as p.Pattern<c.ControlMap>).n(args[0]);
       case 'note':
         return (pattern as p.Pattern<c.ControlMap>).note(args[0]);
+      case 'scale':
+        return pattern.scale(args[0]);
       case 'gain':
         return (pattern as p.Pattern<c.ControlMap>).gain(args[0]);
       case 'pan':
@@ -861,6 +917,28 @@ class StrudelGrammarDefinition extends GrammarDefinition {
         return pattern.reset(args[0]);
       case 'restart':
         return pattern.restart(args[0]);
+      case 'resetAll':
+        return pattern.resetAll(args[0]);
+      case 'restartAll':
+        return pattern.restartAll(args[0]);
+      case 'structAll':
+        return pattern.structAll(args[0]);
+      case 'maskAll':
+        return pattern.maskAll(args[0]);
+      case 'collect':
+        return pattern.collect();
+      case 'arpWith':
+        return pattern.arpWith(args[0] as Function);
+      case 'arp':
+        return pattern.arp(args[0]);
+      case 'log':
+        return pattern.log();
+      case 'logValues':
+        return pattern.logValues();
+      case 'onTriggerTime':
+        return pattern.onTriggerTime(args[0] as Function);
+      case 'hush':
+        return pattern.hush();
       case 'stepJoin':
         return pattern.stepJoin();
       case 'stepBind':
@@ -883,6 +961,8 @@ class StrudelGrammarDefinition extends GrammarDefinition {
         return pattern.log2();
       case 'band':
         return pattern.band(args[0]);
+      case 'brshift':
+        return pattern.brshift(args[0]);
       case 'brshift':
         return pattern.brshift(args[0]);
       case 'shuffle':
@@ -1343,6 +1423,38 @@ class StrudelGrammarDefinition extends GrammarDefinition {
         return (pattern as p.Pattern<dynamic>).div(args[0]);
       case 'mod':
         return (pattern as p.Pattern<dynamic>).mod(args[0]);
+      case 'pow':
+        return (pattern as p.Pattern<dynamic>).pow(args[0]);
+      case 'lt':
+        return (pattern as p.Pattern<dynamic>).lt(args[0]);
+      case 'gt':
+        return (pattern as p.Pattern<dynamic>).gt(args[0]);
+      case 'lte':
+        return (pattern as p.Pattern<dynamic>).lte(args[0]);
+      case 'gte':
+        return (pattern as p.Pattern<dynamic>).gte(args[0]);
+      case 'eq':
+        return (pattern as p.Pattern<dynamic>).eq(args[0]);
+      case 'eqt':
+        return (pattern as p.Pattern<dynamic>).eqt(args[0]);
+      case 'ne':
+        return (pattern as p.Pattern<dynamic>).ne(args[0]);
+      case 'net':
+        return (pattern as p.Pattern<dynamic>).net(args[0]);
+      case 'and':
+        return (pattern as p.Pattern<dynamic>).and(args[0]);
+      case 'or':
+        return (pattern as p.Pattern<dynamic>).or(args[0]);
+      case 'bor':
+        return (pattern as p.Pattern<dynamic>).bor(args[0]);
+      case 'bxor':
+        return (pattern as p.Pattern<dynamic>).bxor(args[0]);
+      case 'blshift':
+        return (pattern as p.Pattern<dynamic>).blshift(args[0]);
+      case 'keep':
+        return (pattern as p.Pattern<dynamic>).keep(args[0]);
+      case 'keepif':
+        return (pattern as p.Pattern<dynamic>).keepif(args[0]);
 
       case 'struct':
         return pattern.struct(args[0] as p.Pattern);
@@ -1350,6 +1462,10 @@ class StrudelGrammarDefinition extends GrammarDefinition {
         return pattern.mask(args[0] as p.Pattern);
       case 'euclid':
         return pattern.euclid(args[0], args[1]);
+      case 'choose':
+        return s.chooseWith(pattern, args);
+      case 'choose2':
+        return s.chooseWith(pattern.fromBipolar(), args);
 
       case 'layer':
         return (pattern as p.Pattern).layer(
@@ -1361,7 +1477,43 @@ class StrudelGrammarDefinition extends GrammarDefinition {
               .toList(),
         );
       default:
-        throw Exception('Unknown method: $name');
+        throw Exception(_unsupportedMessage('method', name));
     }
   }
+
+  p.Pattern<dynamic> _handleVisual(
+    dynamic pattern,
+    String name,
+    List args,
+  ) {
+    final type = name.startsWith('_') ? name.substring(1) : name;
+    StrudelVisuals.emit(
+      type,
+      pattern as p.Pattern<dynamic>,
+      options: _visualOptions(args),
+      inline: name.startsWith('_'),
+    );
+    return pattern as p.Pattern<dynamic>;
+  }
+
+  Map<String, dynamic> _visualOptions(List args) {
+    if (args.isEmpty) return const {};
+    final arg = args.first;
+    if (arg is Map) {
+      return Map<String, dynamic>.from(arg);
+    }
+    return const {};
+  }
+}
+
+String _unsupportedMessage(String kind, String name) {
+  return 'Unsupported $kind: $name. Not available in the Dart/Flutter port '
+      'yet. See https://strudel.cc/ and strudel_dart/PORTING.md.';
+}
+
+void _fireAndForget(Future<void>? future, String origin) {
+  if (future == null) return;
+  unawaited(
+    future.catchError((error) => errorLogger(error, origin: origin)),
+  );
 }

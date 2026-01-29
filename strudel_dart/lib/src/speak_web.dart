@@ -8,7 +8,10 @@ void _triggerSpeech(String words, String lang, dynamic voice) {
   }
   synth.cancel();
   final utterance = html.SpeechSynthesisUtterance(words)..lang = lang;
-  final voices = synth.getVoices().where((v) => v.lang.contains(lang)).toList();
+  final voices = synth
+      .getVoices()
+      .where((v) => (v.lang ?? '').contains(lang))
+      .toList();
   if (voice is num && voices.isNotEmpty) {
     utterance.voice = voices[voice.toInt() % voices.length];
   } else if (voice is String) {
@@ -20,7 +23,7 @@ void _triggerSpeech(String words, String lang, dynamic voice) {
   synth.speak(utterance);
 }
 
-Pattern speak(dynamic lang, dynamic voice, Pattern pat) {
+Pattern _speak(dynamic lang, dynamic voice, Pattern pat) {
   final language = (lang ?? 'en').toString();
   return pat.onTrigger((hap, _now, _cps, _targetTime) {
     final words = hap.value.toString();
@@ -28,8 +31,11 @@ Pattern speak(dynamic lang, dynamic voice, Pattern pat) {
   }, false);
 }
 
+Pattern speak(dynamic lang, dynamic voice, Pattern pat) =>
+    _speak(lang, voice, pat);
+
 extension PatternSpeakExtension<T> on Pattern<T> {
   Pattern<T> speak(dynamic lang, [dynamic voice]) {
-    return speak(lang, voice, this).cast<T>();
+    return _speak(lang, voice, this).cast<T>();
   }
 }

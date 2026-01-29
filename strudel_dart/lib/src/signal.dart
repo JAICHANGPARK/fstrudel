@@ -281,6 +281,12 @@ Pattern wchooseCycles(List<List<dynamic>> pairs) =>
 
 Pattern wrandcat(List<List<dynamic>> pairs) => wchooseCycles(pairs);
 
+extension PatternChooseExtension<T> on Pattern<T> {
+  Pattern choose(List<dynamic> xs) => chooseWith(this, xs);
+
+  Pattern choose2(List<dynamic> xs) => chooseWith(fromBipolar(), xs);
+}
+
 double _perlin(num t, int seed) {
   final ta = t.floor();
   final tb = ta + 1;

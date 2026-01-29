@@ -4,8 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:strudel_dart/strudel_dart.dart';
 import 'package:flutter_strudel/src/scheduler.dart';
 import 'package:flutter_strudel/src/audio_engine.dart';
-import 'package:flutter_strudel/src/web_draw_canvas_stub.dart'
-    if (dart.library.js_interop) 'package:flutter_strudel/src/web_draw_canvas.dart';
+import 'package:flutter_strudel/src/visual_feedback.dart';
 import 'package:flutter_strudel/src/web_strudel_iframe_stub.dart'
     if (dart.library.js_interop) 'package:flutter_strudel/src/web_strudel_iframe.dart';
 
@@ -18,12 +17,40 @@ class StrudelApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final baseScheme = ColorScheme.fromSeed(
+      seedColor: const Color(0xFF3B82F6),
+      brightness: Brightness.dark,
+    );
+    final colorScheme = baseScheme.copyWith(
+      surface: const Color(0xFF0D1321),
+      surfaceVariant: const Color(0xFF162033),
+      outline: const Color(0xFF2A3B57),
+      outlineVariant: const Color(0xFF1F2A40),
+    );
+
     return MaterialApp(
       title: 'Flutter Strudel',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.deepPurple,
-          brightness: Brightness.dark,
+        colorScheme: colorScheme,
+        scaffoldBackgroundColor: colorScheme.surface,
+        appBarTheme: AppBarTheme(
+          backgroundColor: colorScheme.surface,
+          foregroundColor: colorScheme.onSurface,
+          elevation: 0,
+          scrolledUnderElevation: 1,
+        ),
+        inputDecorationTheme: InputDecorationTheme(
+          labelStyle: TextStyle(
+            color: colorScheme.primary.withOpacity(0.8),
+          ),
+          hintStyle: TextStyle(
+            color: colorScheme.onSurfaceVariant,
+          ),
+        ),
+        textSelectionTheme: TextSelectionThemeData(
+          cursorColor: colorScheme.primary,
+          selectionColor: colorScheme.primary.withOpacity(0.25),
+          selectionHandleColor: colorScheme.primary,
         ),
         useMaterial3: true,
       ),
@@ -52,6 +79,8 @@ class _StrudelHomeState extends State<StrudelHome> {
   // For visualizing active sounds
   final ValueNotifier<Set<String>> _activeSoundsNotifier =
       ValueNotifier<Set<String>>({});
+  final ValueNotifier<StrudelVisualRequest?> _visualRequest =
+      ValueNotifier<StrudelVisualRequest?>(null);
   final Map<String, Timer> _soundTimers = {};
 
   bool _audioReady = false;
@@ -113,6 +142,9 @@ class _StrudelHomeState extends State<StrudelHome> {
         _log("Tempo changed: CPS=${newCps.toStringAsFixed(2)}");
       },
     );
+    StrudelVisuals.onVisualRequest = (request) {
+      _visualRequest.value = request;
+    };
 
     _audioReady = kIsWeb;
     if (!kIsWeb) {
@@ -157,11 +189,11 @@ class _StrudelHomeState extends State<StrudelHome> {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     if (kIsWeb) {
       return Scaffold(
         appBar: AppBar(
           title: const Text('Flutter Strudel'),
-          backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         ),
         body: const Padding(
           padding: EdgeInsets.all(16.0),
@@ -175,7 +207,6 @@ class _StrudelHomeState extends State<StrudelHome> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Flutter Strudel'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -184,21 +215,20 @@ class _StrudelHomeState extends State<StrudelHome> {
             // Code Editor
             Container(
               decoration: BoxDecoration(
-                color: Colors.grey.shade900,
+                color: colorScheme.surfaceVariant,
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.deepPurple.shade700),
+                border: Border.all(color: colorScheme.outlineVariant),
               ),
               child: TextField(
                 controller: _controller,
                 maxLines: 5,
-                style: const TextStyle(
+                style: TextStyle(
                   fontFamily: 'monospace',
                   fontSize: 14,
-                  color: Colors.white,
+                  color: colorScheme.onSurface,
                 ),
                 decoration: InputDecoration(
                   labelText: 'Strudel Expression',
-                  labelStyle: TextStyle(color: Colors.deepPurple.shade200),
                   border: InputBorder.none,
                   contentPadding: const EdgeInsets.all(12),
                 ),
@@ -207,15 +237,11 @@ class _StrudelHomeState extends State<StrudelHome> {
             const SizedBox(height: 12),
             SizedBox(
               height: 160,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: Colors.black,
-                    border: Border.all(color: Colors.deepPurple.shade800),
-                  ),
-                  child: const StrudelScopeCanvas(),
-                ),
+              child: ValueListenableBuilder<StrudelVisualRequest?>(
+                valueListenable: _visualRequest,
+                builder: (context, request, child) {
+                  return StrudelVisualPanel(request: request);
+                },
               ),
             ),
             const SizedBox(height: 12),
@@ -236,7 +262,7 @@ class _StrudelHomeState extends State<StrudelHome> {
                       Icon(
                         Icons.music_note,
                         size: 16,
-                        color: Colors.deepPurple.shade300,
+                        color: colorScheme.primary,
                       ),
                       const SizedBox(width: 8),
                       Expanded(
@@ -265,6 +291,15 @@ class _StrudelHomeState extends State<StrudelHome> {
                               _log("Playing pattern (web)...");
                             } else {
                               final pattern = _repl.evaluate(_controller.text);
+                              final visualRequest = _visualRequest.value;
+                              if (visualRequest != null) {
+                                _visualRequest.value = StrudelVisualRequest(
+                                  type: visualRequest.type,
+                                  pattern: pattern,
+                                  options: visualRequest.options,
+                                  inline: visualRequest.inline,
+                                );
+                              }
                               _scheduler.play(pattern);
                               _log("Playing pattern...");
                             }
@@ -281,8 +316,8 @@ class _StrudelHomeState extends State<StrudelHome> {
                   icon: const Icon(Icons.play_arrow),
                   label: const Text('Play'),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green.shade700,
-                    foregroundColor: Colors.white,
+                    backgroundColor: colorScheme.primary,
+                    foregroundColor: colorScheme.onPrimary,
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -298,8 +333,8 @@ class _StrudelHomeState extends State<StrudelHome> {
                   icon: const Icon(Icons.stop),
                   label: const Text('Stop'),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.red.shade700,
-                    foregroundColor: Colors.white,
+                    backgroundColor: colorScheme.error,
+                    foregroundColor: colorScheme.onError,
                   ),
                 ),
                 const SizedBox(width: 16),
@@ -313,9 +348,9 @@ class _StrudelHomeState extends State<StrudelHome> {
                         vertical: 6,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.deepPurple.shade900,
+                        color: colorScheme.secondaryContainer,
                         borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: Colors.deepPurple.shade500),
+                        border: Border.all(color: colorScheme.secondary),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
@@ -323,7 +358,7 @@ class _StrudelHomeState extends State<StrudelHome> {
                           Icon(
                             Icons.speed,
                             size: 16,
-                            color: Colors.deepPurple.shade200,
+                            color: colorScheme.onSecondaryContainer,
                           ),
                           const SizedBox(width: 4),
                           Text(
@@ -331,7 +366,7 @@ class _StrudelHomeState extends State<StrudelHome> {
                             style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.bold,
-                              color: Colors.deepPurple.shade100,
+                              color: colorScheme.onSecondaryContainer,
                             ),
                           ),
                         ],
@@ -345,6 +380,9 @@ class _StrudelHomeState extends State<StrudelHome> {
                     _controller.clear();
                     _log("Editor cleared.");
                   },
+                  style: TextButton.styleFrom(
+                    foregroundColor: colorScheme.primary,
+                  ),
                   child: const Text('Clear Editor'),
                 ),
                 const SizedBox(width: 8),
@@ -354,6 +392,9 @@ class _StrudelHomeState extends State<StrudelHome> {
                       _logs.clear();
                     });
                   },
+                  style: TextButton.styleFrom(
+                    foregroundColor: colorScheme.primary,
+                  ),
                   child: const Text('Clear Logs'),
                 ),
               ],
@@ -364,7 +405,7 @@ class _StrudelHomeState extends State<StrudelHome> {
             Expanded(
               child: Container(
                 decoration: BoxDecoration(
-                  color: Colors.grey.shade900,
+                  color: colorScheme.surfaceVariant,
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: ListView.builder(
@@ -378,7 +419,7 @@ class _StrudelHomeState extends State<StrudelHome> {
                         style: TextStyle(
                           fontFamily: 'monospace',
                           fontSize: 11,
-                          color: Colors.grey.shade300,
+                          color: colorScheme.onSurfaceVariant,
                         ),
                       ),
                     );
@@ -396,6 +437,7 @@ class _StrudelHomeState extends State<StrudelHome> {
     // Common sounds to always show (dim when inactive)
     const commonSounds = ['bd', 'sd', 'hh', 'oh', 'cp', 'rim', 'misc'];
     final allSounds = {...commonSounds, ...activeSounds};
+    final colorScheme = Theme.of(context).colorScheme;
 
     return allSounds.map((sound) {
       final isActive = activeSounds.contains(sound);
@@ -403,7 +445,9 @@ class _StrudelHomeState extends State<StrudelHome> {
         duration: const Duration(milliseconds: 100),
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
-          color: isActive ? _getSoundColor(sound) : Colors.grey.shade800,
+          color: isActive
+              ? _getSoundColor(sound)
+              : colorScheme.surfaceVariant,
           borderRadius: BorderRadius.circular(12),
           boxShadow: isActive
               ? [
@@ -420,7 +464,9 @@ class _StrudelHomeState extends State<StrudelHome> {
           style: TextStyle(
             fontSize: 11,
             fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
-            color: isActive ? Colors.white : Colors.grey.shade600,
+            color: isActive
+                ? Colors.white
+                : colorScheme.onSurfaceVariant,
           ),
         ),
       );
@@ -457,17 +503,18 @@ class _StrudelHomeState extends State<StrudelHome> {
   }
 
   Widget _buildAudioStatus() {
+    final colorScheme = Theme.of(context).colorScheme;
     if (_audioInitError != null) {
       return Row(
         children: [
-          Icon(Icons.error, size: 16, color: Colors.red.shade300),
+          Icon(Icons.error, size: 16, color: colorScheme.error),
           const SizedBox(width: 6),
           Expanded(
             child: Text(
               'Audio init failed: $_audioInitError',
               style: TextStyle(
                 fontSize: 12,
-                color: Colors.red.shade300,
+                color: colorScheme.error,
               ),
             ),
           ),
@@ -483,25 +530,28 @@ class _StrudelHomeState extends State<StrudelHome> {
             child: CircularProgressIndicator(
               strokeWidth: 2,
               valueColor: AlwaysStoppedAnimation<Color>(
-                Colors.deepPurple.shade200,
+                colorScheme.primary,
               ),
             ),
           ),
           const SizedBox(width: 8),
           Text(
             'Loading audio engine...',
-            style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
+            style: TextStyle(
+              fontSize: 12,
+              color: colorScheme.onSurfaceVariant,
+            ),
           ),
         ],
       );
     }
     return Row(
       children: [
-        Icon(Icons.check_circle, size: 16, color: Colors.green.shade300),
+        Icon(Icons.check_circle, size: 16, color: colorScheme.tertiary),
         const SizedBox(width: 6),
         Text(
           'Audio ready',
-          style: TextStyle(fontSize: 12, color: Colors.green.shade300),
+          style: TextStyle(fontSize: 12, color: colorScheme.tertiary),
         ),
       ],
     );
@@ -512,6 +562,8 @@ class _StrudelHomeState extends State<StrudelHome> {
     for (final timer in _soundTimers.values) {
       timer.cancel();
     }
+    StrudelVisuals.onVisualRequest = null;
+    _visualRequest.dispose();
     _scheduler.dispose();
     _controller.dispose();
     _audioEngine.dispose();

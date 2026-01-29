@@ -3,6 +3,24 @@
 This document defines the minimum feature set required to say the Dart/Flutter
 port matches Strudel's "basic" functionality and a phased plan to reach it.
 
+## Feature Matrix (Docs vs Dart/Flutter)
+
+Status legend: Yes, Partial, No, N/A.
+
+| Area | Docs page | strudel_dart | flutter_strudel | Notes |
+| --- | --- | --- | --- | --- |
+| Core patterns + mini notation | /learn/getting-started | Partial | Partial | Core patterns + parser exist; parity gaps remain. |
+| Samples (samples, banks, github shortcut) | /learn/samples | Partial | Partial | Hooks exist; Flutter loads default packs. No UI for import folder or soundAlias. |
+| Synths (basic, noise, wavetable, ZZFX) | /learn/synths | Partial | Partial | Synth engine exists; parity and UI coverage incomplete. |
+| Effects (lpf/hpf, delay/room, etc) | /learn/effects | Partial | Partial | Some filters supported; chain parity incomplete. |
+| Visual feedback (punchcard, scope, etc) | /learn/visual-feedback | Partial | Partial | Initial Flutter visuals only; many types missing. |
+| MIDI / OSC / MQTT | /learn/input-output | No | No | Planned (Phase 4). |
+| Input devices (gamepad) | /learn/input-devices | No | No | Planned (Phase 4). |
+| Device motion | /learn/devicemotion | No | No | Planned (Phase 4). |
+| Hydra | /learn/hydra | No | No | Web-only in JS. |
+| Csound | /learn/csound | No | No | Not implemented. |
+| Offline / PWA | /learn/pwa | N/A | N/A | Web app feature; Flutter has separate packaging. |
+
 ## Phase 0: Core Semantics Parity (Must-have)
 
 - Pattern semantics: step-join/squeeze/reset/restart edge cases match JS.
@@ -63,4 +81,3 @@ Acceptance:
 2) Sample map parity and exact list ordering for banks (TR909, Dirt-Samples).
 3) Soundfont loader (GM pack) or sample-based fallback mapping.
 4) DSP/FX chain support in Flutter audio engine (must be deterministic).
-

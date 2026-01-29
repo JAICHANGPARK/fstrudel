@@ -128,6 +128,14 @@ void main() {
       expect(haps.any((h) => h.value == 'hh'), isTrue);
     });
 
+    test('mini() parses stacks with spaces and multiple layers', () {
+      final pat = mini('bd sd [~ bd] sd, hh*16, misc');
+      final haps = pat.queryArc(0, 1);
+      expect(haps.any((h) => h.value == 'bd'), isTrue);
+      expect(haps.any((h) => h.value == 'hh'), isTrue);
+      expect(haps.any((h) => h.value == 'misc'), isTrue);
+    });
+
     test('mini() handles multipliers', () {
       final pat = mini('bd*2'); // bd bd
       final haps = pat.queryArc(0, 1);
@@ -166,6 +174,15 @@ void main() {
       expect(haps[0].part.duration, equals(f.Fraction(2, 3)));
       expect(haps[1].value, equals('sd'));
       expect(haps[1].part.duration, equals(f.Fraction(1, 3)));
+    });
+
+    test('mini() handles polymeter slowcat with bjorklund and rests', () {
+      final pat = note('<f1*2 ~ c2 ~ e1*2 ~ a1 ~>(3,8)')
+          .s('sine')
+          .gain(0.5)
+          .lpf(300)
+          .slow(3);
+      expect(() => pat.queryArc(0, 1), returnsNormally);
     });
   });
 }

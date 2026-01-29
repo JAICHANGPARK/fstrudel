@@ -15,23 +15,54 @@ class SampleBank {
   bool get isPitched => pitched != null;
 }
 
+class SampleMapDefinition {
+  final String url;
+  final String? baseUrl;
+
+  const SampleMapDefinition(this.url, {this.baseUrl});
+}
+
 class SampleManager {
-  static const List<String> _defaultSampleMapUrls = [
-    'https://raw.githubusercontent.com/felixroos/dough-samples/main/tidal-drum-machines.json',
-    'https://raw.githubusercontent.com/felixroos/dough-samples/main/piano.json',
-    'https://raw.githubusercontent.com/felixroos/dough-samples/main/Dirt-Samples.json',
-    'https://raw.githubusercontent.com/felixroos/dough-samples/main/vcsl.json',
-    'https://raw.githubusercontent.com/felixroos/dough-samples/main/mridangam.json',
-    'https://raw.githubusercontent.com/tidalcycles/uzu-drumkit/main/strudel.json',
+  static const String _baseCdn = 'https://strudel.b-cdn.net';
+
+  static const List<SampleMapDefinition> _defaultSampleMaps = [
+    SampleMapDefinition(
+      '$_baseCdn/tidal-drum-machines.json',
+      baseUrl: '$_baseCdn/tidal-drum-machines/machines/',
+    ),
+    SampleMapDefinition(
+      'https://raw.githubusercontent.com/felixroos/dough-samples/main/'
+          'piano.json',
+    ),
+    SampleMapDefinition(
+      'https://raw.githubusercontent.com/felixroos/dough-samples/main/'
+          'Dirt-Samples.json',
+    ),
+    SampleMapDefinition(
+      'https://raw.githubusercontent.com/felixroos/dough-samples/main/'
+          'vcsl.json',
+    ),
+    SampleMapDefinition(
+      'https://raw.githubusercontent.com/felixroos/dough-samples/main/'
+          'mridangam.json',
+    ),
+    SampleMapDefinition(
+      '$_baseCdn/uzu-drumkit.json',
+      baseUrl: '$_baseCdn/uzu-drumkit/',
+    ),
+    SampleMapDefinition(
+      '$_baseCdn/uzu-wavetables.json',
+      baseUrl: '$_baseCdn/uzu-wavetables/',
+    ),
   ];
 
   static const String _defaultAliasBankUrl =
-      'https://raw.githubusercontent.com/todepond/samples/main/tidal-drum-machines-alias.json';
+      '$_baseCdn/tidal-drum-machines-alias.json';
 
   static const String _drumMachinesBaseUrl =
-      'https://raw.githubusercontent.com/ritchse/tidal-drum-machines/main/machines/';
+      '$_baseCdn/tidal-drum-machines/machines/';
   static const String _dirtSamplesBaseUrl =
-      'https://strudel.b-cdn.net/Dirt-Samples/';
+      '$_baseCdn/Dirt-Samples/';
 
   // Fallback mappings for common banks and sounds.
   // Format: {bank_sound: path_suffix}
@@ -151,11 +182,45 @@ class SampleManager {
   }
 
   Future<void> _initializeDefaults() async {
-    for (final url in _defaultSampleMapUrls) {
-      await _addSampleMapFromUrl(url);
+    for (final map in _defaultSampleMaps) {
+      await _addSampleMapFromUrl(
+        map.url,
+        baseOverride: map.baseUrl,
+      );
     }
     await _loadAliasBankMap(_defaultAliasBankUrl);
     _applyBankAliases();
+  }
+
+  Future<void> addSampleMap(
+    dynamic sampleMap, {
+    String? baseUrl,
+  }) async {
+    await initializeDefaults();
+    if (sampleMap is String) {
+      final resolvedUrl = _resolveSampleMapUrl(sampleMap);
+      final baseOverride =
+          baseUrl != null ? _resolveSampleBase(baseUrl) : null;
+      await _addSampleMapFromUrl(
+        resolvedUrl,
+        baseOverride: baseOverride,
+      );
+      _applyBankAliases();
+      return;
+    }
+    if (sampleMap is Map<String, dynamic>) {
+      var resolvedBase =
+          baseUrl ?? sampleMap['_base']?.toString() ?? '';
+      resolvedBase = _resolveSampleBase(resolvedBase);
+      _addSampleMap(
+        sampleMap,
+        resolvedBase,
+        allowMapBase: baseUrl == null,
+      );
+      _applyBankAliases();
+      return;
+    }
+    print('SampleManager: Unsupported sample map: ${sampleMap.runtimeType}');
   }
 
   Future<String?> getSamplePath(
@@ -331,7 +396,10 @@ class SampleManager {
     return (octave + 1) * 12 + chroma + offset;
   }
 
-  Future<void> _addSampleMapFromUrl(String url) async {
+  Future<void> _addSampleMapFromUrl(
+    String url, {
+    String? baseOverride,
+  }) async {
     try {
       final response = await http.get(Uri.parse(url));
       if (response.statusCode != 200) {
@@ -343,16 +411,27 @@ class SampleManager {
         print('SampleManager: Invalid sample map format: $url');
         return;
       }
-      _addSampleMap(jsonBody, _baseFromUrl(url));
+      final base = baseOverride ?? _baseFromUrl(url);
+      _addSampleMap(
+        jsonBody,
+        base,
+        allowMapBase: baseOverride == null,
+      );
     } catch (e) {
       print('SampleManager: Error loading sample map $url: $e');
     }
   }
 
-  void _addSampleMap(Map<String, dynamic> sampleMap, String baseUrl) {
-    final dynamic baseOverride = sampleMap['_base'];
-    final String mapBase =
-        baseOverride is String ? baseOverride : baseUrl;
+  void _addSampleMap(
+    Map<String, dynamic> sampleMap,
+    String baseUrl, {
+    bool allowMapBase = true,
+  }) {
+    final dynamic baseOverride =
+        allowMapBase ? sampleMap['_base'] : null;
+    final String mapBase = _resolveSampleBase(
+      baseOverride is String ? baseOverride : baseUrl,
+    );
     for (final entry in sampleMap.entries) {
       if (entry.key == '_base') continue;
       _addSampleEntry(entry.key, entry.value, mapBase);
@@ -362,7 +441,7 @@ class SampleManager {
   void _addSampleEntry(String key, dynamic value, String baseUrl) {
     String entryBase = baseUrl;
     if (value is Map && value['_base'] is String) {
-      entryBase = value['_base'] as String;
+      entryBase = _resolveSampleBase(value['_base'] as String);
     }
     entryBase = _ensureTrailingSlash(entryBase);
     final normalizedKey = _normalizeSoundKey(key);
@@ -476,6 +555,73 @@ class SampleManager {
   bool _isNoteMap(List<String> keys) {
     final noteRegex = RegExp(r'^([a-gA-G])([#bsf]*)(-?[0-9]*)$');
     return keys.isNotEmpty && keys.every((k) => noteRegex.hasMatch(k));
+  }
+
+  String _resolveSampleMapUrl(String url) {
+    var resolved = _resolveSpecialPaths(url);
+    if (resolved.startsWith('github:')) {
+      resolved = _githubPath(resolved, 'strudel.json');
+    }
+    if (resolved.startsWith('local:')) {
+      resolved = 'http://localhost:5432';
+    }
+    if (resolved.startsWith('shabda:')) {
+      final parts = resolved.split('shabda:');
+      final path = parts.length > 1 ? parts[1] : '';
+      resolved = 'https://shabda.ndre.gr/$path.json?strudel=1';
+    }
+    if (resolved.startsWith('shabda/speech')) {
+      final parts = resolved.split('shabda/speech');
+      var path = parts.length > 1 ? parts[1] : '';
+      path = path.startsWith('/') ? path.substring(1) : path;
+      final segments = path.split(':');
+      final params = segments.isNotEmpty ? segments[0] : '';
+      final words = segments.length > 1 ? segments[1] : '';
+      var language = 'en-GB';
+      var gender = 'f';
+      if (params.isNotEmpty) {
+        final parts = params.split('/');
+        if (parts.isNotEmpty) language = parts[0];
+        if (parts.length > 1) gender = parts[1];
+      }
+      resolved =
+          'https://shabda.ndre.gr/speech/$words.json?gender=$gender&language=$language&strudel=1';
+    }
+    return resolved;
+  }
+
+  String _resolveSampleBase(String baseUrl) {
+    var resolved = _resolveSpecialPaths(baseUrl);
+    if (resolved.startsWith('github:')) {
+      resolved = _githubPath(resolved, '');
+    }
+    return resolved;
+  }
+
+  String _resolveSpecialPaths(String base) {
+    if (base.startsWith('bubo:')) {
+      final parts = base.split(':');
+      final repo = parts.length > 1 ? parts[1] : '';
+      return 'github:Bubobubobubobubo/dough-$repo';
+    }
+    return base;
+  }
+
+  String _githubPath(String base, String subpath) {
+    if (!base.startsWith('github:')) {
+      return base;
+    }
+    var path = base.substring('github:'.length);
+    path = path.endsWith('/') ? path.substring(0, path.length - 1) : path;
+
+    final parts = path.split('/');
+    final user = parts.isNotEmpty ? parts[0] : '';
+    final repo = parts.length >= 2 ? parts[1] : 'samples';
+    final branch = parts.length >= 3 ? parts[2] : 'main';
+    final remaining = parts.length > 3 ? parts.sublist(3) : <String>[];
+    final segments = [...remaining, if (subpath.isNotEmpty) subpath];
+    final suffix = segments.isEmpty ? '' : segments.join('/');
+    return 'https://raw.githubusercontent.com/$user/$repo/$branch/$suffix';
   }
 
   String _resolveUrl(String base, String path) {

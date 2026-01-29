@@ -90,14 +90,26 @@ class Pattern<T> {
   }
 
   Pattern<T> fast(dynamic factor) {
+    if (factor is Pattern) {
+      return factor.bind((v) => fast(v)).cast<T>();
+    }
     final f.Fraction fFactor = fraction(factor);
+    if (fFactor.numerator == 0) {
+      return silence.cast<T>();
+    }
     return withQueryTime((t) => t * fFactor)
         .withHapTime((t) => t / fFactor)
         .setSteps((_steps ?? fraction(1)) * fFactor);
   }
 
   Pattern<T> slow(dynamic factor) {
+    if (factor is Pattern) {
+      return factor.bind((v) => slow(v)).cast<T>();
+    }
     final f.Fraction fFactor = fraction(factor);
+    if (fFactor.numerator == 0) {
+      return silence.cast<T>();
+    }
     return withQueryTime((t) => t / fFactor)
         .withHapTime((t) => t * fFactor)
         .setSteps((_steps ?? fraction(1)) / fFactor);
@@ -161,7 +173,8 @@ class Pattern<T> {
   }
 
   Pattern<dynamic> collect() {
-    return withHaps((haps, _) {
+    return Pattern((state) {
+      final haps = query(state);
       final groups = <List<Hap<T>>>[];
       for (final hap in haps) {
         final index = groups.indexWhere(
@@ -185,7 +198,7 @@ class Pattern<T> {
             ),
           )
           .toList();
-    });
+    }, steps: _steps);
   }
 
   Pattern<T> onTrigger(
@@ -939,6 +952,53 @@ class Pattern<T> {
     return map(op).appLeft(reify(other));
   }
 
+  Pattern<dynamic> _opOut(
+    dynamic other,
+    dynamic Function(dynamic) Function(dynamic) op,
+  ) {
+    return map(op).appRight(reify(other));
+  }
+
+  Pattern<dynamic> _opMix(
+    dynamic other,
+    dynamic Function(dynamic) Function(dynamic) op,
+  ) {
+    return map(op).appBoth(reify(other));
+  }
+
+  Pattern<dynamic> _opSqueeze(
+    dynamic other,
+    dynamic Function(dynamic) Function(dynamic) op,
+  ) {
+    final otherPat = reify(other);
+    return map((a) => otherPat.map((b) => op(a)(b))).squeezeJoin();
+  }
+
+  Pattern<dynamic> _opSqueezeOut(
+    dynamic other,
+    dynamic Function(dynamic) Function(dynamic) op,
+  ) {
+    final thisPat = this;
+    final otherPat = reify(other);
+    return otherPat.map((a) => thisPat.map((b) => op(b)(a))).squeezeJoin();
+  }
+
+  Pattern<dynamic> _opReset(
+    dynamic other,
+    dynamic Function(dynamic) Function(dynamic) op,
+  ) {
+    final otherPat = reify(other);
+    return otherPat.map((b) => map((a) => op(a)(b))).resetJoin();
+  }
+
+  Pattern<dynamic> _opRestart(
+    dynamic other,
+    dynamic Function(dynamic) Function(dynamic) op,
+  ) {
+    final otherPat = reify(other);
+    return otherPat.map((b) => map((a) => op(a)(b))).restartJoin();
+  }
+
   Pattern<dynamic> set(dynamic other) => _opIn(
     other,
     (a) => (b) {
@@ -993,12 +1053,116 @@ class Pattern<T> {
     },
   );
 
+  Pattern<dynamic> pow(dynamic other) => _opIn(
+    other,
+    (a) => (b) {
+      if (a is num && b is num) return math.pow(a, b);
+      return a;
+    },
+  );
+
+  Pattern<dynamic> bor(dynamic other) => _opIn(
+    other,
+    (a) => (b) {
+      if (a is num && b is num) return a.toInt() | b.toInt();
+      return a;
+    },
+  );
+
+  Pattern<dynamic> bxor(dynamic other) => _opIn(
+    other,
+    (a) => (b) {
+      if (a is num && b is num) return a.toInt() ^ b.toInt();
+      return a;
+    },
+  );
+
+  Pattern<dynamic> blshift(dynamic other) => _opIn(
+    other,
+    (a) => (b) {
+      if (a is num && b is num) return a.toInt() << b.toInt();
+      return a;
+    },
+  );
+
+  Pattern<dynamic> lt(dynamic other) => _opIn(
+    other,
+    (a) => (b) {
+      if (a is num && b is num) return a < b;
+      if (a is String && b is String) return a.compareTo(b) < 0;
+      return false;
+    },
+  );
+
+  Pattern<dynamic> gt(dynamic other) => _opIn(
+    other,
+    (a) => (b) {
+      if (a is num && b is num) return a > b;
+      if (a is String && b is String) return a.compareTo(b) > 0;
+      return false;
+    },
+  );
+
+  Pattern<dynamic> lte(dynamic other) => _opIn(
+    other,
+    (a) => (b) {
+      if (a is num && b is num) return a <= b;
+      if (a is String && b is String) return a.compareTo(b) <= 0;
+      return false;
+    },
+  );
+
+  Pattern<dynamic> gte(dynamic other) => _opIn(
+    other,
+    (a) => (b) {
+      if (a is num && b is num) return a >= b;
+      if (a is String && b is String) return a.compareTo(b) >= 0;
+      return false;
+    },
+  );
+
+  Pattern<dynamic> eq(dynamic other) => _opIn(
+    other,
+    (a) => (b) => a == b,
+  );
+
+  Pattern<dynamic> eqt(dynamic other) => _opIn(
+    other,
+    (a) => (b) => a == b,
+  );
+
+  Pattern<dynamic> ne(dynamic other) => _opIn(
+    other,
+    (a) => (b) => a != b,
+  );
+
+  Pattern<dynamic> net(dynamic other) => _opIn(
+    other,
+    (a) => (b) => a != b,
+  );
+
+  Pattern<dynamic> and(dynamic other) => _opIn(
+    other,
+    (a) => (b) => _truthy(a) ? b : a,
+  );
+
+  Pattern<dynamic> or(dynamic other) => _opIn(
+    other,
+    (a) => (b) => _truthy(a) ? a : b,
+  );
+
+  Pattern<T> keep(dynamic other) {
+    return _opIn(
+      other,
+      (a) => (b) => a,
+    ).cast<T>();
+  }
+
   Pattern<T> keepif(dynamic other) {
-    final otherPat = reify(other);
-    return otherPat.bind((v) {
-      final ok = v is bool ? v : (v is num ? v != 0 : v != null);
-      return ok ? this : silence.cast<T>();
-    }).cast<T>();
+    return _opIn(
+      other,
+      (a) => (b) => _truthy(b) ? a : null,
+    ).filterValues((v) => v != null).cast<T>();
   }
 
   Pattern<T> reset(dynamic other) {
@@ -1064,6 +1228,9 @@ class Pattern<T> {
   Pattern<T> segment(dynamic rate) {
     if (rate is! num) {
       throw StateError('segment expects numeric rate');
+    }
+    if (rate <= 0) {
+      return silence.cast<T>();
     }
     return struct(pure(true).fast(rate)).setSteps(fraction(rate));
   }
@@ -1296,6 +1463,14 @@ bool _spanEquals(Hap a, Hap b) {
   if (aw == null && bw == null) return samePart;
   if (aw == null || bw == null) return false;
   return samePart && aw.equals(bw);
+}
+
+bool _truthy(dynamic value) {
+  if (value == null) return false;
+  if (value is bool) return value;
+  if (value is num) return value != 0;
+  if (value is String) return value.isNotEmpty && value != '~';
+  return true;
 }
 
 Pattern<R> sequence<R>(List<dynamic> pats) => fastcat<R>(pats);

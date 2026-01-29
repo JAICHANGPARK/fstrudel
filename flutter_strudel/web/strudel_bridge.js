@@ -24,9 +24,8 @@ async function init() {
     const { core, mini, webaudio, tonal, transpiler, superdough, draw } = await loadModules();
     state.ctx = webaudio.getAudioContext();
     webaudio.initAudioOnFirstClick();
+    const baseCdn = 'https://strudel.b-cdn.net';
     const ds = 'https://raw.githubusercontent.com/felixroos/dough-samples/main';
-    const ts = 'https://raw.githubusercontent.com/todepond/samples/main';
-    const tc = 'https://raw.githubusercontent.com/tidalcycles/uzu-drumkit/main';
 
     core.evalScope(
       Promise.resolve(core),
@@ -63,17 +62,21 @@ async function init() {
       webaudio.registerSynthSounds(),
       webaudio.registerZZFXSounds(),
       soundfontTask,
-      webaudio.samples(`${ds}/tidal-drum-machines.json`),
-      webaudio.samples(`${ds}/piano.json`),
+      webaudio.samples(
+        `${baseCdn}/tidal-drum-machines.json`,
+        `${baseCdn}/tidal-drum-machines/machines/`
+      ),
+      webaudio.samples(`${baseCdn}/piano.json`, `${baseCdn}/piano/`),
       webaudio.samples(`${ds}/Dirt-Samples.json`),
-      webaudio.samples(`${ds}/vcsl.json`),
-      webaudio.samples(`${ds}/mridangam.json`),
-      webaudio.samples(`${tc}/strudel.json`),
+      webaudio.samples(`${baseCdn}/vcsl.json`, `${baseCdn}/VCSL/`),
+      webaudio.samples(`${baseCdn}/mridangam.json`, `${baseCdn}/mrid/`),
+      webaudio.samples(`${baseCdn}/uzu-drumkit.json`, `${baseCdn}/uzu-drumkit/`),
+      webaudio.samples(`${baseCdn}/uzu-wavetables.json`, `${baseCdn}/uzu-wavetables/`),
     ]);
 
     const aliasBank = webaudio.aliasBank || superdough.aliasBank;
     if (aliasBank) {
-      await aliasBank(`${ts}/tidal-drum-machines-alias.json`);
+      await aliasBank(`${baseCdn}/tidal-drum-machines-alias.json`);
     }
 
     const repl = core.repl({

@@ -1,17 +1,35 @@
+import 'dart:collection';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_soloud/flutter_soloud.dart';
+import 'package:path/path.dart' as path;
+import 'package:path_provider/path_provider.dart';
 import 'package:strudel_dart/strudel_dart.dart';
 import 'sample_manager.dart';
+import 'wavetable_manager.dart';
 
 /// Audio Engine using flutter_soloud for audio playback with DSP effects
 class AudioEngine {
+  static const int _sampleRate = 44100;
+  static const String _soLoudTempDirName = 'SoLoudLoader-Temp-Files';
+
   final SoLoud _soloud = SoLoud.instance;
   final Map<String, AudioSource> _loadedSources = {};
   final SampleManager _sampleManager = SampleManager();
+  final SynthEngine _synthEngine = SynthEngine(sampleRate: _sampleRate);
+  final WavetableManager _wavetableManager = WavetableManager();
+  final LinkedHashMap<String, Uint8List> _synthCache = LinkedHashMap();
   final List<SoundHandle> _activeHandles = [];
   final Map<int, List<SoundHandle>> _cutGroups = {};
   bool _initialized = false;
   int _currentSessionId = 0;
+
+  static const int _maxSynthCacheEntries = 64;
+
+  AudioEngine() {
+    StrudelResources.onSamples = _handleSamples;
+    StrudelResources.onTables = _handleTables;
+  }
 
   // Track active filter states
   bool _echoActive = false;
@@ -25,11 +43,19 @@ class AudioEngine {
   bool _compressorActive = false;
   bool _limiterActive = false;
 
+  Future<void> _ensureSoLoudTempDir() async {
+    final systemTempDir = await getTemporaryDirectory();
+    final tempDirPath =
+        path.join(systemTempDir.path, _soLoudTempDirName);
+    await Directory(tempDirPath).create(recursive: true);
+  }
+
   Future<void> init() async {
     if (_initialized) return;
     print('AudioEngine: Initializing flutter_soloud...');
     try {
-      await _soloud.init();
+      await _ensureSoLoudTempDir();
+      await _soloud.init(sampleRate: _sampleRate);
       print('AudioEngine: Loading default sample packs...');
       await _sampleManager.initializeDefaults();
       _initialized = true;
@@ -38,6 +64,43 @@ class AudioEngine {
       print('AudioEngine: Initialization failed: $e');
       rethrow;
     }
+  }
+
+  Future<void> _handleSamples(
+    dynamic sampleMap, {
+    String? baseUrl,
+    Map<String, dynamic>? options,
+  }) async {
+    await _sampleManager.addSampleMap(sampleMap, baseUrl: baseUrl);
+    await _wavetableManager.registerWavetablesFromSampleMap(
+      sampleMap,
+      baseUrl: baseUrl,
+    );
+  }
+
+  Future<void> _handleTables(
+    dynamic source, {
+    int? frameLen,
+    dynamic json,
+    Map<String, dynamic>? options,
+  }) async {
+    final effectiveFrameLen = frameLen ?? 2048;
+    if (json is Map<String, dynamic>) {
+      _wavetableManager.registerTablesFromJson(
+        json,
+        baseUrl: source is String ? source : null,
+        frameLen: effectiveFrameLen,
+      );
+      return;
+    }
+    if (source is String) {
+      await _wavetableManager.registerTablesFromUrl(
+        source,
+        frameLen: effectiveFrameLen,
+      );
+      return;
+    }
+    print('AudioEngine: tables() expects a URL string.');
   }
 
   Future<void> play(Hap hap) async {
@@ -53,14 +116,21 @@ class AudioEngine {
       return;
     }
 
-    final sound = params['s']?.toString().trim();
+    final paramsMap = Map<String, dynamic>.from(params);
+    final sound = paramsMap['s']?.toString().trim();
     if (sound == null || sound.isEmpty) return;
 
-    final bank = params['bank']?.toString();
-    final nVal = params['n'];
+    final soundLower = sound.toLowerCase();
+    if (_synthEngine.supportsSound(soundLower, paramsMap)) {
+      await _playSynth(hap, paramsMap, soundLower, sessionId);
+      return;
+    }
+
+    final bank = paramsMap['bank']?.toString();
+    final nVal = paramsMap['n'];
     final int n = nVal is num ? nVal.toInt() : 0;
-    final note = params['note'];
-    final freq = params['freq'];
+    final note = paramsMap['note'];
+    final freq = paramsMap['freq'];
 
     // Get sample path
     String? path = await _sampleManager.getSamplePath(
@@ -83,19 +153,19 @@ class AudioEngine {
       if (_currentSessionId != sessionId) return;
 
       // Extract audio parameters
-      final gain = _getDouble(params['gain'], 1.0);
-      final amp = _getDouble(params['amp'], 1.0);
-      final velocity = _getDouble(params['velocity'], 1.0);
-      final pan = _normalizePan(_getDouble(params['pan'], 0.0));
-      final speed = _getDouble(params['speed'], 1.0);
+      final gain = _getDouble(paramsMap['gain'], 1.0);
+      final amp = _getDouble(paramsMap['amp'], 1.0);
+      final velocity = _getDouble(paramsMap['velocity'], 1.0);
+      final pan = _normalizePan(_getDouble(paramsMap['pan'], 0.0));
+      final speed = _getDouble(paramsMap['speed'], 1.0);
 
-      final cutGroup = _getInt(params['cut']);
+      final cutGroup = _getInt(paramsMap['cut']);
       if (cutGroup != null && cutGroup > 0) {
         await _stopCutGroup(cutGroup);
       }
 
       // Apply global filters based on parameters
-      await _applyGlobalFilters(params);
+      await _applyGlobalFilters(paramsMap);
 
       // Wait for scheduled time if needed
       if (hap.scheduledTime != null) {
@@ -118,10 +188,10 @@ class AudioEngine {
         pan: pan.clamp(-1.0, 1.0),
       );
 
-      _applyPlaybackControls(handle, source, params, speed: speed);
+      _applyPlaybackControls(handle, source, paramsMap, speed: speed);
 
       // Apply per-sound filters
-      await _applyPerSoundFilters(handle, params, source);
+      await _applyPerSoundFilters(handle, paramsMap, source);
 
       _activeHandles.add(handle);
       if (cutGroup != null && cutGroup > 0) {
@@ -134,10 +204,125 @@ class AudioEngine {
       }
 
       print(
-        'AudioEngine: Playing $sound (gain:${gain.toStringAsFixed(2)}, pan:${pan.toStringAsFixed(2)})',
+        'AudioEngine: Playing $sound '
+        '(gain:${gain.toStringAsFixed(2)}, '
+        'pan:${pan.toStringAsFixed(2)})',
       );
     } catch (e) {
       print('AudioEngine: Error playing sample "$sound": $e');
+    }
+  }
+
+  Future<void> _playSynth(
+    Hap hap,
+    Map<String, dynamic> params,
+    String sound,
+    int sessionId,
+  ) async {
+    final cps = _getDouble(hap.context['cps'], 0.0);
+    final durationParam = _getDouble(params['duration'], double.nan);
+    final durationSeconds = durationParam.isNaN
+        ? (cps > 0
+            ? hap.duration.toDouble() / cps
+            : 0.2)
+        : durationParam;
+
+    params['duration'] = durationSeconds;
+    params['cps'] = cps;
+
+    final shouldCache = _shouldCacheSynth(sound, params);
+    final cacheKey = shouldCache
+        ? _buildSynthCacheKey(sound, params, durationSeconds)
+        : null;
+    Uint8List? wavBytes =
+        cacheKey != null ? _getSynthCache(cacheKey) : null;
+
+    final isWavetable = _wavetableManager.isWavetableSound(sound);
+    if (wavBytes == null && isWavetable) {
+      final ready = await _wavetableManager.prepare(sound, params);
+      if (!ready) {
+        print('AudioEngine: Wavetable not ready for "$sound"');
+        return;
+      }
+      if (_currentSessionId != sessionId) return;
+    }
+
+    if (wavBytes == null) {
+      if (!isWavetable) {
+        try {
+          wavBytes = await compute(_renderSynthIsolate, {
+            'params': Map<String, dynamic>.from(params),
+            'duration': durationSeconds,
+            'sampleRate': _sampleRate,
+          });
+        } catch (e) {
+          print('AudioEngine: Isolate render failed: $e');
+        }
+      }
+      wavBytes ??=
+          _synthEngine.render(params, durationSeconds).wavBytes;
+      if (cacheKey != null) {
+        _putSynthCache(cacheKey, wavBytes);
+      }
+    }
+
+    if (_currentSessionId != sessionId) return;
+
+    final cutGroup = _getInt(params['cut']);
+    if (cutGroup != null && cutGroup > 0) {
+      await _stopCutGroup(cutGroup);
+    }
+
+    final key =
+        'synth:$sound:${DateTime.now().microsecondsSinceEpoch.toString()}';
+
+    try {
+      final source = await _soloud.loadMem(key, wavBytes);
+      if (_currentSessionId != sessionId) {
+        await _soloud.disposeSource(source);
+        return;
+      }
+
+      // Wait for scheduled time if needed
+      if (hap.scheduledTime != null) {
+        final now = DateTime.now();
+        final delayDuration = hap.scheduledTime!.difference(now);
+        if (delayDuration.inMicroseconds > 2000) {
+          await Future.delayed(
+            Duration(microseconds: delayDuration.inMicroseconds - 2000),
+          );
+        }
+      }
+
+      if (_currentSessionId != sessionId) {
+        await _soloud.disposeSource(source);
+        return;
+      }
+
+      final amp = _getDouble(params['amp'], 1.0);
+      final volume = amp.clamp(0.0, 2.0);
+      final handle = await _soloud.play(
+        source,
+        volume: volume,
+        pan: 0.0,
+      );
+
+      _activeHandles.add(handle);
+      if (cutGroup != null && cutGroup > 0) {
+        _cutGroups.putIfAbsent(cutGroup, () => []).add(handle);
+      }
+
+      source.allInstancesFinished.first.then((_) async {
+        try {
+          await _soloud.disposeSource(source);
+        } catch (_) {}
+      });
+
+      if (_activeHandles.length > 50) {
+        _cleanupFinishedHandles();
+      }
+    } catch (e) {
+      print('AudioEngine: Error playing synth \"$sound\": $e');
     }
   }
 
@@ -519,8 +704,6 @@ class AudioEngine {
 
     // Duck effect (placeholder)
     final duck = _getDouble(params['duck'], 0.0);
-    final duckdepth = _getDouble(params['duckdepth'], 1.0);
-    final duckattack = _getDouble(params['duckattack'], 0.01);
     if (duck > 0) {
       // Ducking requires side-chain - not implemented
     }
@@ -578,6 +761,90 @@ class AudioEngine {
       if (parsed != null) return parsed != 0;
     }
     return false;
+  }
+
+  bool _shouldCacheSynth(String sound, Map<String, dynamic> params) {
+    final soundKey = _stripSoundIndex(sound.toLowerCase());
+    if (_isNoiseSound(soundKey)) return false;
+    if (_getDouble(params['noise'], 0.0) > 0) return false;
+    if (_getDouble(params['zrand'], 0.0) > 0) return false;
+    return true;
+  }
+
+  bool _isNoiseSound(String sound) {
+    return sound == 'white' ||
+        sound == 'pink' ||
+        sound == 'brown' ||
+        sound == 'crackle' ||
+        sound == 'dust';
+  }
+
+  String _buildSynthCacheKey(
+    String sound,
+    Map<String, dynamic> params,
+    double durationSeconds,
+  ) {
+    final entries = params.entries
+        .where((entry) => !_ignoreCacheKey(entry.key))
+        .toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+    final buffer = StringBuffer()
+      ..write(sound.toLowerCase())
+      ..write('|')
+      ..write(durationSeconds.toStringAsFixed(6));
+    for (final entry in entries) {
+      buffer
+        ..write('|')
+        ..write(entry.key)
+        ..write('=')
+        ..write(_serializeValue(entry.value));
+    }
+    return buffer.toString();
+  }
+
+  bool _ignoreCacheKey(String key) {
+    return key == 'amp' || key == 'cut';
+  }
+
+  String _stripSoundIndex(String sound) {
+    final idx = sound.lastIndexOf(':');
+    if (idx <= 0) return sound;
+    return sound.substring(0, idx);
+  }
+
+  String _serializeValue(dynamic value) {
+    if (value == null) return 'null';
+    if (value is num || value is bool) return value.toString();
+    if (value is String) return value;
+    if (value is List) {
+      return '[${value.map(_serializeValue).join(',')}]';
+    }
+    if (value is Map) {
+      final entries = value.entries.toList()
+        ..sort((a, b) => a.key.toString().compareTo(b.key.toString()));
+      final parts = entries
+          .map((entry) =>
+              '${entry.key}:${_serializeValue(entry.value)}')
+          .join(',');
+      return '{${parts}}';
+    }
+    return value.toString();
+  }
+
+  Uint8List? _getSynthCache(String key) {
+    final bytes = _synthCache.remove(key);
+    if (bytes != null) {
+      _synthCache[key] = bytes;
+    }
+    return bytes;
+  }
+
+  void _putSynthCache(String key, Uint8List bytes) {
+    _synthCache.remove(key);
+    _synthCache[key] = bytes;
+    if (_synthCache.length > _maxSynthCacheEntries) {
+      _synthCache.remove(_synthCache.keys.first);
+    }
   }
 
   double _coerceSpeed(double speed) {
@@ -737,4 +1004,12 @@ class AudioEngine {
     _cutGroups.clear();
     _soloud.deinit();
   }
+}
+
+Uint8List _renderSynthIsolate(Map<String, dynamic> message) {
+  final params = Map<String, dynamic>.from(message['params'] as Map);
+  final duration = message['duration'] as double;
+  final sampleRate = message['sampleRate'] as int;
+  final engine = SynthEngine(sampleRate: sampleRate);
+  return engine.render(params, duration).wavBytes;
 }

@@ -79,11 +79,12 @@ class StrudelScheduler {
           ),
         );
 
+        final context = {...hap.context, 'cps': cps};
         final timedHap = Hap(
           hap.whole,
           hap.part,
           hap.value,
-          context: hap.context,
+          context: context,
           stateful: hap.stateful,
           scheduledTime: scheduledTime,
         );
