@@ -66,13 +66,6 @@ List<dynamic> _bjorklundRecursive(List<int> n, List<List<List<int>>> x) {
   }
 
   if (ons > offs) {
-    return _bjorklundRecursive(
-      [offs, ons - offs], // new n passed to left logic?
-      // Wait, JS calls _bjorklund( ... left(n, x));
-      // _left returns [n, x].
-      _left(n, x)[1] as List<List<List<int>>>,
-    );
-    // Correction: _left returns [n, x], arguments to recursive call.
     final res = _left(n, x);
     return _bjorklundRecursive(
       res[0] as List<int>,

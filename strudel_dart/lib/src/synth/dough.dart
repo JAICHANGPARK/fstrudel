@@ -181,7 +181,7 @@ List<double> _getAdsr(
   const double envMax = 1;
   const double releaseMin = 0.01;
 
-  final attack = params.length > 0 ? params[0] : null;
+  final attack = params.isNotEmpty ? params[0] : null;
   final decay = params.length > 1 ? params[1] : null;
   final sustain = params.length > 2 ? params[2] : null;
   final release = params.length > 3 ? params[3] : null;
@@ -1929,9 +1929,8 @@ final Map<String, _OscFactory> _shapeFactories = {
 /// Core DSP voice scheduler and mixer used by the synth renderer.
 class Dough {
   /// Creates a new DSP mixer at the given sample rate.
-  Dough({double sampleRate = _defaultSampleRate, double currentTime = 0})
-      : sampleRate = sampleRate,
-        _delayL = _Delay(sampleRate: sampleRate),
+  Dough({this.sampleRate = _defaultSampleRate, double currentTime = 0})
+      : _delayL = _Delay(sampleRate: sampleRate),
         _delayR = _Delay(sampleRate: sampleRate) {
     _t = (currentTime * sampleRate).floor();
   }

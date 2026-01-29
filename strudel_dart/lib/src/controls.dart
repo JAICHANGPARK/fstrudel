@@ -494,11 +494,7 @@ extension ControlPatternExtension on Pattern<ControlMap> {
         if (currInputs is List) {
           nextInputs.addAll(currInputs);
         }
-        if (vInput is List) {
-          nextInputs.addAll(vInput);
-        } else {
-          nextInputs.add(vInput);
-        }
+        nextInputs.addAll(vInput);
         return {...v, 'workletSrc': src, 'workletInputs': nextInputs};
       });
     }).cast<ControlMap>();

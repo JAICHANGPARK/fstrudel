@@ -1,8 +1,3 @@
-/// Support for doing something awesome.
-///
-/// More dartdocs go here.
-library strudel_dart;
-
 export 'src/fraction.dart';
 export 'src/hap.dart';
 export 'src/pattern.dart';
