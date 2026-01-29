@@ -25,7 +25,7 @@ void _triggerSpeech(String words, String lang, dynamic voice) {
 
 Pattern _speak(dynamic lang, dynamic voice, Pattern pat) {
   final language = (lang ?? 'en').toString();
-  return pat.onTrigger((hap, _now, _cps, _targetTime) {
+  return pat.onTrigger((hap, now, cps, targetTime) {
     final words = hap.value.toString();
     _triggerSpeech(words, language, voice);
   }, false);

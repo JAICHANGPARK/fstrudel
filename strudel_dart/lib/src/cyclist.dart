@@ -1,9 +1,6 @@
-import 'package:fraction/fraction.dart' as f;
 import 'hap.dart';
 import 'logger.dart';
 import 'pattern.dart';
-import 'state.dart';
-import 'timespan.dart';
 import 'zyklus.dart';
 
 typedef TriggerCallback =

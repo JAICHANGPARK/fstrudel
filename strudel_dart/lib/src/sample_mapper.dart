@@ -25,9 +25,9 @@ class SampleMapper {
     if (parts.length == 2) {
       final bankName = parts[0];
       final bank = _registeredBanks[bankName];
-      if (bank != null && bank is _ArrayBank) {
-        (bank as _ArrayBank).addSound(key, sound);
-      }
+    if (bank is _ArrayBank) {
+      bank.addSound(key, sound);
+    }
     }
   }
 
@@ -37,11 +37,11 @@ class SampleMapper {
     // Try bank_sound format
     final bankSoundMatch = RegExp(r'^([^_:]+)_([^_:]+)$').firstMatch(value);
     if (bankSoundMatch != null) {
-      final bankName = bankSoundMatch!.group(1)!;
-      final soundName = bankSoundMatch!.group(2)!;
+      final bankName = bankSoundMatch.group(1)!;
+      final soundName = bankSoundMatch.group(2)!;
       final bank = _registeredBanks[bankName];
       if (bank != null) {
-        return bank!.getSound(soundName);
+        return bank.getSound(soundName);
       }
     }
 
@@ -52,7 +52,7 @@ class SampleMapper {
       final soundName = value.substring(colonIndex + 1);
       final bank = _registeredBanks[bankName];
       if (bank != null) {
-        return bank!.getSound(soundName);
+        return bank.getSound(soundName);
       }
     }
 
@@ -62,20 +62,20 @@ class SampleMapper {
       final soundPart = value.substring(colonIndex2 + 1);
       final soundNameMatch = RegExp(r'^(\w+):(\d+)$').firstMatch(soundPart);
       if (soundNameMatch != null) {
-        final soundName = soundNameMatch!.group(1)!;
-        final index = int.parse(soundNameMatch!.group(2)!);
+        final index = int.parse(soundNameMatch.group(2)!);
         final bankName = soundPart.split(':')[0];
         final bank = _registeredBanks[bankName];
-        if (bank != null && bank is _ArrayBank) {
-          return (bank as _ArrayBank).getByIndex(index);
+        if (bank is _ArrayBank) {
+          return bank.getByIndex(index);
         }
       }
     }
 
     // Try just the sound name (check in default bank)
-    final bank = defaultBank != null ? _registeredBanks[defaultBank!] : null;
+    final bankKey = defaultBank;
+    final bank = bankKey == null ? null : _registeredBanks[bankKey];
     if (bank != null) {
-      return bank!.getSound(value);
+      return bank.getSound(value);
     }
 
     // Try finding in all registered banks
@@ -97,9 +97,9 @@ class SampleMapper {
       final value = entry.value;
 
       if (value is Map<String, dynamic>) {
-        result[bankName] = _NoteBank(value as Map<String, dynamic>);
+        result[bankName] = _NoteBank(value);
       } else if (value is List<dynamic>) {
-        result[bankName] = _ArrayBank(value as List<dynamic>);
+        result[bankName] = _ArrayBank(value);
       }
     }
 
@@ -116,10 +116,10 @@ class SampleMapper {
       if (value is Map<String, dynamic>) {
         result[bankName] = _NoteBank(value);
       } else if (value is List<dynamic>) {
-        result[bankName] = _ArrayBank(value as List<dynamic>);
+        result[bankName] = _ArrayBank(value);
       } else if (value is String) {
         // Handle base URL format
-        result[bankName] = _BaseBank(value as String);
+        result[bankName] = _BaseBank(value);
       }
     }
 
@@ -182,7 +182,6 @@ class _ArrayBank extends _SoundBank {
       return;
     }
     final baseName = match.group(1)!;
-    final index = int.parse(match.group(2)!);
     int insertIndex = _keyList.indexOf(baseName);
     if (insertIndex < 0) {
       insertIndex = _keyList.length;
@@ -301,7 +300,7 @@ class _SoundInfo {
 
   static _SoundType? _parseType(String? typeStr) {
     if (typeStr == null) return null;
-    switch (typeStr!.toLowerCase()) {
+    switch (typeStr.toLowerCase()) {
       case 'sample':
         return _SoundType.sample;
       case 'synth':

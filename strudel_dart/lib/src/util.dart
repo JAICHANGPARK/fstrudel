@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'dart:math' as math;
 import 'package:fraction/fraction.dart' as f;
-import 'fraction.dart';
 import 'hap.dart';
 import 'logger.dart';
 
@@ -174,7 +173,7 @@ double getFrequency(Hap hap) {
   } else if (value is! num) {
     throw StateError('not a note or frequency: $value');
   }
-  return (value as num).toDouble();
+  return value.toDouble();
 }
 
 List<T> rotate<T>(List<T> arr, int n) => [...arr.skip(n), ...arr.take(n)];

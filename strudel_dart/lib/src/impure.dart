@@ -2,8 +2,6 @@ import 'package:fraction/fraction.dart' as f;
 import 'fraction.dart';
 import 'hap.dart';
 import 'pattern.dart';
-import 'state.dart';
-import 'timespan.dart';
 
 final Map<dynamic, f.Fraction> _timelines = {};
 

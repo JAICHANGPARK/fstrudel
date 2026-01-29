@@ -9,7 +9,6 @@ import 'speak.dart' as sp;
 import 'resources.dart';
 import 'visuals.dart';
 import 'logger.dart';
-import 'tonal.dart';
 
 class StrudelREPL {
   late final Parser _parser;
@@ -963,8 +962,6 @@ class StrudelGrammarDefinition extends GrammarDefinition {
         return pattern.band(args[0]);
       case 'brshift':
         return pattern.brshift(args[0]);
-      case 'brshift':
-        return pattern.brshift(args[0]);
       case 'shuffle':
         return s.shuffle(args[0] as int, pattern);
       case 'scramble':
@@ -1487,13 +1484,14 @@ class StrudelGrammarDefinition extends GrammarDefinition {
     List args,
   ) {
     final type = name.startsWith('_') ? name.substring(1) : name;
+    final castPattern = pattern as p.Pattern<dynamic>;
     StrudelVisuals.emit(
       type,
-      pattern as p.Pattern<dynamic>,
+      castPattern,
       options: _visualOptions(args),
       inline: name.startsWith('_'),
     );
-    return pattern as p.Pattern<dynamic>;
+    return castPattern;
   }
 
   Map<String, dynamic> _visualOptions(List args) {

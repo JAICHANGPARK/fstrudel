@@ -393,9 +393,8 @@ int _seed = 0;
 
 class _MiniMeta {
   f.Fraction weight;
-  bool stepsSource;
-  _MiniMeta({f.Fraction? weight, this.stepsSource = false})
-      : weight = weight ?? fraction(1);
+  bool stepsSource = false;
+  _MiniMeta({f.Fraction? weight}) : weight = weight ?? fraction(1);
 }
 
 final Expando<_MiniMeta> _miniMeta = Expando<_MiniMeta>('miniMeta');

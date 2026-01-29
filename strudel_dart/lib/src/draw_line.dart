@@ -1,6 +1,5 @@
 import 'package:fraction/fraction.dart' as f;
 import 'fraction.dart';
-import 'hap.dart';
 import 'pattern.dart';
 
 String drawLine(Pattern pat, {int chars = 60}) {

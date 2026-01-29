@@ -26,8 +26,9 @@ class Pattern<T> {
   }
 
   Pattern<T> withSteps(f.Fraction Function(f.Fraction) func) {
-    if (_steps == null) return this;
-    return Pattern(query, steps: func(_steps!));
+    final steps = _steps;
+    if (steps == null) return this;
+    return Pattern(query, steps: func(steps));
   }
 
   Pattern<R> map<R>(R Function(T) func) {
@@ -952,53 +953,6 @@ class Pattern<T> {
     return map(op).appLeft(reify(other));
   }
 
-  Pattern<dynamic> _opOut(
-    dynamic other,
-    dynamic Function(dynamic) Function(dynamic) op,
-  ) {
-    return map(op).appRight(reify(other));
-  }
-
-  Pattern<dynamic> _opMix(
-    dynamic other,
-    dynamic Function(dynamic) Function(dynamic) op,
-  ) {
-    return map(op).appBoth(reify(other));
-  }
-
-  Pattern<dynamic> _opSqueeze(
-    dynamic other,
-    dynamic Function(dynamic) Function(dynamic) op,
-  ) {
-    final otherPat = reify(other);
-    return map((a) => otherPat.map((b) => op(a)(b))).squeezeJoin();
-  }
-
-  Pattern<dynamic> _opSqueezeOut(
-    dynamic other,
-    dynamic Function(dynamic) Function(dynamic) op,
-  ) {
-    final thisPat = this;
-    final otherPat = reify(other);
-    return otherPat.map((a) => thisPat.map((b) => op(b)(a))).squeezeJoin();
-  }
-
-  Pattern<dynamic> _opReset(
-    dynamic other,
-    dynamic Function(dynamic) Function(dynamic) op,
-  ) {
-    final otherPat = reify(other);
-    return otherPat.map((b) => map((a) => op(a)(b))).resetJoin();
-  }
-
-  Pattern<dynamic> _opRestart(
-    dynamic other,
-    dynamic Function(dynamic) Function(dynamic) op,
-  ) {
-    final otherPat = reify(other);
-    return otherPat.map((b) => map((a) => op(a)(b))).restartJoin();
-  }
-
   Pattern<dynamic> set(dynamic other) => _opIn(
     other,
     (a) => (b) {
@@ -1235,8 +1189,6 @@ class Pattern<T> {
     return struct(pure(true).fast(rate)).setSteps(fraction(rate));
   }
 
-  Pattern<T> _segment(dynamic rate) => segment(rate);
-
   Pattern<T> repeatCycles(dynamic n) {
     final f.Fraction fN = fraction(n);
     return Pattern((state) {
@@ -1254,11 +1206,12 @@ class Pattern<T> {
 
   Pattern<T> pace(dynamic targetSteps) {
     if (!hasSteps) return this;
-    if (_steps == null || _steps == fraction(0)) {
+    final steps = _steps;
+    if (steps == null || steps == fraction(0)) {
       return silence.cast<T>();
     }
     final f.Fraction target = fraction(targetSteps);
-    return fast(target / _steps!).setSteps(target);
+    return fast(target / steps).setSteps(target);
   }
 
   Pattern<dynamic> stepJoin() {
@@ -1282,7 +1235,8 @@ class Pattern<T> {
 
   Pattern<T> take(dynamic i) {
     if (!hasSteps) return silence.cast<T>();
-    if (_steps == null || _steps! <= fraction(0)) {
+    final steps = _steps;
+    if (steps == null || steps <= fraction(0)) {
       return silence.cast<T>();
     }
     var amount = fraction(i);
@@ -1291,7 +1245,7 @@ class Pattern<T> {
     if (flip) {
       amount = fraction(0) - amount;
     }
-    final frac = amount / _steps!;
+    final frac = amount / steps;
     if (frac <= fraction(0)) return silence.cast<T>();
     if (frac >= fraction(1)) return this;
     if (flip) {
@@ -1327,8 +1281,10 @@ class Pattern<T> {
 
   List<Pattern<T>> shrinklist(dynamic amount) {
     if (!hasSteps) return [this];
+    final steps = _steps;
+    if (steps == null) return [this];
     var amountValue = amount;
-    dynamic times = _steps!;
+    dynamic times = steps;
     if (amount is List && amount.length == 2) {
       amountValue = amount[0];
       times = amount[1];
@@ -1342,7 +1298,7 @@ class Pattern<T> {
         : (times as num).toInt();
     final ranges = <List<f.Fraction>>[];
     if (amt > fraction(0)) {
-      final seg = (fraction(1) / _steps!) * amt;
+      final seg = (fraction(1) / steps) * amt;
       for (var i = 0; i < count; i++) {
         final s = seg * fraction(i);
         if (s > fraction(1)) break;
@@ -1350,7 +1306,7 @@ class Pattern<T> {
       }
     } else {
       amt = fraction(0) - amt;
-      final seg = (fraction(1) / _steps!) * amt;
+      final seg = (fraction(1) / steps) * amt;
       for (var i = 0; i < count; i++) {
         final e = fraction(1) - (seg * fraction(i));
         if (e < fraction(0)) break;

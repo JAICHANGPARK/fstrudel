@@ -411,7 +411,7 @@ class _SupersawOsc {
       final p = _polyBlep(_phases[i], dt);
       final s = 2 * _phases[i] - 1 - p;
       sl += s * gainL;
-      sr += s * gainL;
+      sr += s * gainR;
       _phases[i] += dt;
       if (_phases[i] > 1) {
         _phases[i] -= 1;
@@ -1349,7 +1349,7 @@ class _DoughVoice {
     if (fmi != null) {
       _fm = _SineOsc(sampleRate: sampleRate);
       fmh ??= _defaultDouble('fmh', 1);
-      if (fmenv != null && fmenv != 0) {
+      if (fmenv != 0) {
         _fmenv = _ADSR(decayCurve: 2);
         final fmenvValues =
             _getAdsr([fmattack, fmdecay, fmsustain, fmrelease]);
@@ -1402,7 +1402,7 @@ class _DoughVoice {
       bprelease = bpenvValues[3];
     }
 
-    _chorus = chorus != null && chorus! > 0 ? [] : null;
+    _chorus = chorus > 0 ? [] : null;
     _lpf = cutoff != null ? [] : null;
     _hpf = hcutoff != null ? [] : null;
     _bpf = bandf != null ? [] : null;

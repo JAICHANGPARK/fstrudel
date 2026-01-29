@@ -3,7 +3,6 @@ import 'package:fraction/fraction.dart' as f;
 import 'fraction.dart';
 import 'hap.dart';
 import 'pattern.dart';
-import 'state.dart';
 import 'util.dart';
 
 Pattern<T> steady<T>(T value) {
@@ -172,10 +171,14 @@ Pattern randrun(int n) {
   return signal((t, controls) {
     final seed = controls['randSeed'] is int ? controls['randSeed'] as int : 0;
     final rands =
-        getRandsAtTime(t.sam() + fraction(0.5), n: n, seed: seed) as List;
-    final nums =
-        rands.asMap().entries.map((e) => [e.value as num, e.key]).toList()
-          ..sort((a, b) => (a[0] as num).compareTo(b[0] as num));
+        getRandsAtTime(t.sam() + fraction(0.5), n: n, seed: seed)
+            as List<double>;
+    final nums = rands
+        .asMap()
+        .entries
+        .map<List<num>>((e) => [e.value, e.key])
+        .toList()
+      ..sort((a, b) => a[0].compareTo(b[0]));
     final idx = ((t.cyclePos() * fraction(n)).toDouble().floor()) % n;
     return nums[idx][1];
   }).segment(n);
@@ -264,8 +267,8 @@ Pattern _wchooseWith(Pattern pat, List<List<dynamic>> pairs) {
     return weightspat
         .map(
           (weights) => (find) {
-            final w = weights as List;
-            final idx = w.indexWhere((x) => (x as num) > (find as num));
+            final w = weights;
+            final idx = w.indexWhere((x) => x > find);
             return values[idx];
           },
         )
@@ -345,8 +348,8 @@ Pattern sometimesBy(Pattern patx, Pattern Function(Pattern) func, Pattern pat) {
   return patx
       .map(
         (x) => stack([
-          degradeBy(x as num, pat),
-          func(undegradeBy(1 - (x as num), pat)),
+          degradeBy(x, pat),
+          func(undegradeBy(1 - x, pat)),
         ]),
       )
       .innerJoin();
