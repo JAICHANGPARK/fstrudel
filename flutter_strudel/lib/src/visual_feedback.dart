@@ -197,7 +197,7 @@ class _PatternTimelinePainter extends CustomPainter {
       for (final event in row.events) {
         final xStart = labelWidth + (plotWidth * event.start);
         final xEnd = labelWidth + (plotWidth * event.end);
-        final width = math.max(2, xEnd - xStart);
+        final width = math.max(2.0, xEnd - xStart);
         rowPaint.color = event.color;
         final rect = Rect.fromLTWH(
           xStart,
