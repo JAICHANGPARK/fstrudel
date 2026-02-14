@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:js' as js;
 import 'package:strudel_dart/strudel_dart.dart';
+import 'control_support.dart';
 
 class AudioEngine {
   bool _initialized = false;
@@ -22,6 +23,8 @@ class AudioEngine {
   Future<void> stopAll() async {
     await _callBridge('hush');
   }
+
+  void setControlGateMode(ControlGateMode mode) {}
 
   void dispose() {}
 }
