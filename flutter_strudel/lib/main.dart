@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:strudel_dart/strudel_dart.dart';
 import 'package:flutter_strudel/src/scheduler.dart';
 import 'package:flutter_strudel/src/audio_engine.dart';
+import 'package:flutter_strudel/src/control_support.dart';
 import 'package:flutter_strudel/src/visual_feedback.dart';
 import 'package:flutter_strudel/src/web_strudel_iframe_stub.dart'
     if (dart.library.js_interop) 'package:flutter_strudel/src/web_strudel_iframe.dart';
@@ -40,12 +41,8 @@ class StrudelApp extends StatelessWidget {
           scrolledUnderElevation: 1,
         ),
         inputDecorationTheme: InputDecorationTheme(
-          labelStyle: TextStyle(
-            color: colorScheme.primary.withOpacity(0.8),
-          ),
-          hintStyle: TextStyle(
-            color: colorScheme.onSurfaceVariant,
-          ),
+          labelStyle: TextStyle(color: colorScheme.primary.withOpacity(0.8)),
+          hintStyle: TextStyle(color: colorScheme.onSurfaceVariant),
         ),
         textSelectionTheme: TextSelectionThemeData(
           cursorColor: colorScheme.primary,
@@ -74,6 +71,8 @@ class _StrudelHomeState extends State<StrudelHome> {
     text: 's("bd sd [~ bd] sd, hh*16, misc")',
   );
   final ValueNotifier<double> _cpsNotifier = ValueNotifier<double>(0.5);
+  final ValueNotifier<ControlGateMode> _controlGateNotifier =
+      ValueNotifier<ControlGateMode>(ControlGateMode.warn);
   late final StrudelREPL _repl;
 
   // For visualizing active sounds
@@ -145,6 +144,7 @@ class _StrudelHomeState extends State<StrudelHome> {
     StrudelVisuals.onVisualRequest = (request) {
       _visualRequest.value = request;
     };
+    _audioEngine.setControlGateMode(_controlGateNotifier.value);
 
     _audioReady = kIsWeb;
     if (!kIsWeb) {
@@ -172,7 +172,11 @@ class _StrudelHomeState extends State<StrudelHome> {
     if (!kIsWeb) {
       _scheduler.haps.listen((hap) {
         print('MainUI: Event received: $hap');
-        _audioEngine.play(hap);
+        unawaited(
+          _audioEngine.play(hap).catchError((error) {
+            _log('Error: $error');
+          }),
+        );
 
         // Extract sound name for visualization
         if (hap.value is Map) {
@@ -192,9 +196,7 @@ class _StrudelHomeState extends State<StrudelHome> {
     final colorScheme = Theme.of(context).colorScheme;
     if (kIsWeb) {
       return Scaffold(
-        appBar: AppBar(
-          title: const Text('Flutter Strudel'),
-        ),
+        appBar: AppBar(title: const Text('Flutter Strudel')),
         body: const Padding(
           padding: EdgeInsets.all(16.0),
           child: SizedBox.expand(
@@ -205,9 +207,7 @@ class _StrudelHomeState extends State<StrudelHome> {
     }
     final canPlay = _audioReady && _audioInitError == null;
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Flutter Strudel'),
-      ),
+      appBar: AppBar(title: const Text('Flutter Strudel')),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -245,10 +245,7 @@ class _StrudelHomeState extends State<StrudelHome> {
               ),
             ),
             const SizedBox(height: 12),
-            if (!kIsWeb) ...[
-              _buildAudioStatus(),
-              const SizedBox(height: 12),
-            ],
+            if (!kIsWeb) ...[_buildAudioStatus(), const SizedBox(height: 12)],
 
             // Active Sounds Visualizer
             ValueListenableBuilder<Set<String>>(
@@ -280,124 +277,129 @@ class _StrudelHomeState extends State<StrudelHome> {
             const SizedBox(height: 12),
 
             // Controls Row
-            Row(
-              children: [
-                ElevatedButton.icon(
-                  onPressed: canPlay
-                      ? () async {
-                          try {
-                            if (kIsWeb) {
-                              await _audioEngine.evalCode(_controller.text);
-                              _log("Playing pattern (web)...");
-                            } else {
-                              final pattern = _repl.evaluate(_controller.text);
-                              final visualRequest = _visualRequest.value;
-                              if (visualRequest != null) {
-                                _visualRequest.value = StrudelVisualRequest(
-                                  type: visualRequest.type,
-                                  pattern: pattern,
-                                  options: visualRequest.options,
-                                  inline: visualRequest.inline,
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  ElevatedButton.icon(
+                    onPressed: canPlay
+                        ? () async {
+                            try {
+                              if (kIsWeb) {
+                                await _audioEngine.evalCode(_controller.text);
+                                _log("Playing pattern (web)...");
+                              } else {
+                                final pattern = _repl.evaluate(
+                                  _controller.text,
                                 );
+                                final visualRequest = _visualRequest.value;
+                                if (visualRequest != null) {
+                                  _visualRequest.value = StrudelVisualRequest(
+                                    type: visualRequest.type,
+                                    pattern: pattern,
+                                    options: visualRequest.options,
+                                    inline: visualRequest.inline,
+                                  );
+                                }
+                                _scheduler.play(pattern);
+                                _log("Playing pattern...");
                               }
-                              _scheduler.play(pattern);
-                              _log("Playing pattern...");
+                            } catch (e) {
+                              _log("Error: $e");
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: SelectableText(e.toString())),
+                              );
                             }
-                          } catch (e) {
-                            _log("Error: $e");
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: SelectableText(e.toString()),
-                              ),
-                            );
                           }
-                        }
-                      : null,
-                  icon: const Icon(Icons.play_arrow),
-                  label: const Text('Play'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: colorScheme.primary,
-                    foregroundColor: colorScheme.onPrimary,
+                        : null,
+                    icon: const Icon(Icons.play_arrow),
+                    label: const Text('Play'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: colorScheme.primary,
+                      foregroundColor: colorScheme.onPrimary,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                ElevatedButton.icon(
-                  onPressed: () {
-                    if (!kIsWeb) {
-                      _scheduler.stop();
-                    }
-                    _audioEngine.stopAll();
-                    _activeSoundsNotifier.value = {};
-                    _log("Stopped.");
-                  },
-                  icon: const Icon(Icons.stop),
-                  label: const Text('Stop'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: colorScheme.error,
-                    foregroundColor: colorScheme.onError,
+                  const SizedBox(width: 8),
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      if (!kIsWeb) {
+                        _scheduler.stop();
+                      }
+                      _audioEngine.stopAll();
+                      _activeSoundsNotifier.value = {};
+                      _log("Stopped.");
+                    },
+                    icon: const Icon(Icons.stop),
+                    label: const Text('Stop'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: colorScheme.error,
+                      foregroundColor: colorScheme.onError,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 16),
-                ValueListenableBuilder<double>(
-                  valueListenable: _cpsNotifier,
-                  builder: (context, cps, child) {
-                    final bpm = (cps * 240).round();
-                    return Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: colorScheme.secondaryContainer,
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: colorScheme.secondary),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.speed,
-                            size: 16,
-                            color: colorScheme.onSecondaryContainer,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            'CPS: ${cps.toStringAsFixed(2)} | BPM: $bpm',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
+                  const SizedBox(width: 16),
+                  ValueListenableBuilder<double>(
+                    valueListenable: _cpsNotifier,
+                    builder: (context, cps, child) {
+                      final bpm = (cps * 240).round();
+                      return Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: colorScheme.secondaryContainer,
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: colorScheme.secondary),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.speed,
+                              size: 16,
                               color: colorScheme.onSecondaryContainer,
                             ),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
-                const Spacer(),
-                TextButton(
-                  onPressed: () {
-                    _controller.clear();
-                    _log("Editor cleared.");
-                  },
-                  style: TextButton.styleFrom(
-                    foregroundColor: colorScheme.primary,
+                            const SizedBox(width: 4),
+                            Text(
+                              'CPS: ${cps.toStringAsFixed(2)} | BPM: $bpm',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: colorScheme.onSecondaryContainer,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
                   ),
-                  child: const Text('Clear Editor'),
-                ),
-                const SizedBox(width: 8),
-                TextButton(
-                  onPressed: () {
-                    setState(() {
-                      _logs.clear();
-                    });
-                  },
-                  style: TextButton.styleFrom(
-                    foregroundColor: colorScheme.primary,
+                  const SizedBox(width: 12),
+                  _buildControlGateSelector(),
+                  const Spacer(),
+                  TextButton(
+                    onPressed: () {
+                      _controller.clear();
+                      _log("Editor cleared.");
+                    },
+                    style: TextButton.styleFrom(
+                      foregroundColor: colorScheme.primary,
+                    ),
+                    child: const Text('Clear Editor'),
                   ),
-                  child: const Text('Clear Logs'),
-                ),
-              ],
+                  const SizedBox(width: 8),
+                  TextButton(
+                    onPressed: () {
+                      setState(() {
+                        _logs.clear();
+                      });
+                    },
+                    style: TextButton.styleFrom(
+                      foregroundColor: colorScheme.primary,
+                    ),
+                    child: const Text('Clear Logs'),
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: 16),
 
@@ -445,9 +447,7 @@ class _StrudelHomeState extends State<StrudelHome> {
         duration: const Duration(milliseconds: 100),
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
-          color: isActive
-              ? _getSoundColor(sound)
-              : colorScheme.surfaceVariant,
+          color: isActive ? _getSoundColor(sound) : colorScheme.surfaceVariant,
           borderRadius: BorderRadius.circular(12),
           boxShadow: isActive
               ? [
@@ -464,9 +464,7 @@ class _StrudelHomeState extends State<StrudelHome> {
           style: TextStyle(
             fontSize: 11,
             fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
-            color: isActive
-                ? Colors.white
-                : colorScheme.onSurfaceVariant,
+            color: isActive ? Colors.white : colorScheme.onSurfaceVariant,
           ),
         ),
       );
@@ -512,10 +510,7 @@ class _StrudelHomeState extends State<StrudelHome> {
           Expanded(
             child: Text(
               'Audio init failed: $_audioInitError',
-              style: TextStyle(
-                fontSize: 12,
-                color: colorScheme.error,
-              ),
+              style: TextStyle(fontSize: 12, color: colorScheme.error),
             ),
           ),
         ],
@@ -529,18 +524,13 @@ class _StrudelHomeState extends State<StrudelHome> {
             height: 12,
             child: CircularProgressIndicator(
               strokeWidth: 2,
-              valueColor: AlwaysStoppedAnimation<Color>(
-                colorScheme.primary,
-              ),
+              valueColor: AlwaysStoppedAnimation<Color>(colorScheme.primary),
             ),
           ),
           const SizedBox(width: 8),
           Text(
             'Loading audio engine...',
-            style: TextStyle(
-              fontSize: 12,
-              color: colorScheme.onSurfaceVariant,
-            ),
+            style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant),
           ),
         ],
       );
@@ -557,6 +547,51 @@ class _StrudelHomeState extends State<StrudelHome> {
     );
   }
 
+  Widget _buildControlGateSelector() {
+    final colorScheme = Theme.of(context).colorScheme;
+    return ValueListenableBuilder<ControlGateMode>(
+      valueListenable: _controlGateNotifier,
+      builder: (context, mode, child) {
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+          decoration: BoxDecoration(
+            color: colorScheme.surfaceVariant,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: colorScheme.outline),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.rule, size: 14, color: colorScheme.onSurfaceVariant),
+              const SizedBox(width: 6),
+              DropdownButtonHideUnderline(
+                child: DropdownButton<ControlGateMode>(
+                  value: mode,
+                  isDense: true,
+                  style: TextStyle(fontSize: 12, color: colorScheme.onSurface),
+                  dropdownColor: colorScheme.surfaceVariant,
+                  iconEnabledColor: colorScheme.onSurfaceVariant,
+                  onChanged: (nextMode) {
+                    if (nextMode == null) return;
+                    _controlGateNotifier.value = nextMode;
+                    _audioEngine.setControlGateMode(nextMode);
+                    _log('Control gate: ${nextMode.label}');
+                  },
+                  items: ControlGateMode.values.map((gateMode) {
+                    return DropdownMenuItem<ControlGateMode>(
+                      value: gateMode,
+                      child: Text('Gate ${gateMode.label}'),
+                    );
+                  }).toList(),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   @override
   void dispose() {
     for (final timer in _soundTimers.values) {
@@ -564,6 +599,7 @@ class _StrudelHomeState extends State<StrudelHome> {
     }
     StrudelVisuals.onVisualRequest = null;
     _visualRequest.dispose();
+    _controlGateNotifier.dispose();
     _scheduler.dispose();
     _controller.dispose();
     _audioEngine.dispose();
