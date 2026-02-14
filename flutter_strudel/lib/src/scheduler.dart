@@ -1,109 +1,108 @@
 import 'dart:async';
+
 import 'package:strudel_dart/strudel_dart.dart';
 
 class StrudelScheduler {
-  double cps = 0.5; // Cycles per second (default 0.5 = 120bpm for 4/4)
-  Pattern? _pattern;
-  DateTime? _startTime;
-  DateTime? _lastCpsChangeTime;
-  double _baseCycle = 0;
+  StrudelScheduler({double interval = 0.025, double latency = 0.1}) {
+    _cyclist = Cyclist(
+      interval: interval,
+      latency: latency,
+      getTime: _nowSeconds,
+      onTrigger: _handleTrigger,
+      onError: _onError,
+    );
+    _cyclist.setCps(cps);
+  }
 
+  static double _nowSeconds() {
+    return DateTime.now().microsecondsSinceEpoch / 1000000.0;
+  }
+
+  static void _onError(Object error) {
+    // Keep scheduler resilient; surface the error in logs.
+    print('StrudelScheduler: Cyclist error: $error');
+  }
+
+  double cps = 0.5;
+  late final Cyclist _cyclist;
   final _hapController = StreamController<Hap>.broadcast();
   Stream<Hap> get haps => _hapController.stream;
 
-  Timer? _timer;
-  double _lastQueryEndCycle = 0;
-  final double lookahead = 0.1; // 100ms lookahead
+  bool _started = false;
+  bool _disposed = false;
+  Future<void> _queue = Future.value();
 
   void play(Pattern pattern) {
-    _pattern = pattern;
-    _startTime = DateTime.now();
-    _lastCpsChangeTime = _startTime;
-    _baseCycle = 0;
-    _lastQueryEndCycle = 0;
-    _startTimer();
+    _enqueue(() async {
+      await _cyclist.setPattern(pattern);
+      if (_started) return;
+      await _cyclist.start();
+      _started = true;
+    });
   }
 
   void setCps(double newCps) {
     if (newCps == cps) return;
-
-    final now = DateTime.now();
-    if (_startTime != null && _lastCpsChangeTime != null) {
-      // Calculate cycle reached at old tempo
-      final elapsedSinceChange =
-          now.difference(_lastCpsChangeTime!).inMicroseconds / 1000000.0;
-      _baseCycle += elapsedSinceChange * cps;
-    }
-    _lastCpsChangeTime = now;
     cps = newCps;
-
-    // We don't reset _lastQueryEndCycle because we want to continue from where we are
+    _cyclist.setCps(newCps);
   }
 
   void stop() {
-    _timer?.cancel();
-    _timer = null;
-  }
-
-  void _startTimer() {
-    _timer?.cancel();
-    _timer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
-      _tick();
-    });
-  }
-
-  void _tick() {
-    if (_startTime == null || _pattern == null) return;
-
-    final now = DateTime.now();
-    final elapsedSinceChange =
-        now.difference(_lastCpsChangeTime!).inMicroseconds / 1000000.0;
-    final currentCycle = _baseCycle + (elapsedSinceChange * cps);
-
-    final queryEndCycle = currentCycle + (lookahead * cps);
-
-    if (queryEndCycle > _lastQueryEndCycle) {
-      final haps = _pattern!.onsetsOnly().queryArc(
-        _lastQueryEndCycle,
-        queryEndCycle,
-      );
-      for (final hap in haps) {
-        final onsetCycleDouble = hap.whole!.begin.toDouble();
-
-        // Calculate the time this cycle occurs, relative to the last tempo change
-        final cycleOffset = onsetCycleDouble - _baseCycle;
-        final onsetElapsedSecondsSinceChange = cycleOffset / cps;
-        final scheduledTime = _lastCpsChangeTime!.add(
-          Duration(
-            microseconds: (onsetElapsedSecondsSinceChange * 1000000).toInt(),
-          ),
-        );
-
-        final context = {...hap.context, 'cps': cps};
-        final timedHap = Hap(
-          hap.whole,
-          hap.part,
-          hap.value,
-          context: context,
-          stateful: hap.stateful,
-          scheduledTime: scheduledTime,
-        );
-        final trigger = timedHap.context['onTrigger'];
-        if (trigger is Function) {
-          final nowSeconds =
-              DateTime.now().millisecondsSinceEpoch / 1000.0;
-          final targetSeconds =
-              scheduledTime.millisecondsSinceEpoch / 1000.0;
-          Function.apply(trigger, [timedHap, nowSeconds, cps, targetSeconds]);
-        }
-        _hapController.add(timedHap);
-      }
-      _lastQueryEndCycle = queryEndCycle;
-    }
+    _cyclist.stop();
+    _started = false;
   }
 
   void dispose() {
+    if (_disposed) return;
+    _disposed = true;
     stop();
     _hapController.close();
+  }
+
+  void _enqueue(Future<void> Function() action) {
+    _queue = _queue
+        .then((_) async {
+          if (_disposed) return;
+          await action();
+        })
+        .catchError((Object error, StackTrace stackTrace) {
+          print('StrudelScheduler: Async error: $error');
+        });
+  }
+
+  void _emitTriggeredHap(Hap hap, double triggerCps, double targetTime) {
+    if (_disposed) return;
+
+    final scheduledMicros = (targetTime * 1000000).round();
+    final scheduledTime = DateTime.fromMicrosecondsSinceEpoch(scheduledMicros);
+    final context = {...hap.context, 'cps': triggerCps};
+    final timedHap = Hap(
+      hap.whole,
+      hap.part,
+      hap.value,
+      context: context,
+      stateful: hap.stateful,
+      scheduledTime: scheduledTime,
+    );
+
+    final trigger = timedHap.context['onTrigger'];
+    if (trigger is Function) {
+      final nowSeconds = _nowSeconds();
+      Function.apply(trigger, [timedHap, nowSeconds, triggerCps, targetTime]);
+    }
+    _hapController.add(timedHap);
+  }
+
+  void _handleTrigger(
+    Hap hap,
+    double deadline,
+    double duration,
+    double triggerCps,
+    double targetTime,
+  ) {
+    if (deadline.isNaN || duration.isNaN) {
+      return;
+    }
+    _emitTriggeredHap(hap, triggerCps, targetTime);
   }
 }
