@@ -5,6 +5,7 @@ import 'package:flutter_soloud/flutter_soloud.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:strudel_dart/strudel_dart.dart';
+import 'control_support.dart';
 import 'sample_manager.dart';
 import 'wavetable_manager.dart';
 
@@ -23,12 +24,21 @@ class AudioEngine {
   final Map<int, List<SoundHandle>> _cutGroups = {};
   bool _initialized = false;
   int _currentSessionId = 0;
+  ControlGateMode _controlGateMode = ControlGateMode.warn;
+  final Set<String> _warnedUnsupportedControls = {};
+  final Set<String> _warnedPartialControls = {};
 
   static const int _maxSynthCacheEntries = 64;
 
   AudioEngine() {
     StrudelResources.onSamples = _handleSamples;
     StrudelResources.onTables = _handleTables;
+  }
+
+  void setControlGateMode(ControlGateMode mode) {
+    _controlGateMode = mode;
+    _warnedUnsupportedControls.clear();
+    _warnedPartialControls.clear();
   }
 
   // Track active filter states
@@ -45,8 +55,7 @@ class AudioEngine {
 
   Future<void> _ensureSoLoudTempDir() async {
     final systemTempDir = await getTemporaryDirectory();
-    final tempDirPath =
-        path.join(systemTempDir.path, _soLoudTempDirName);
+    final tempDirPath = path.join(systemTempDir.path, _soLoudTempDirName);
     await Directory(tempDirPath).create(recursive: true);
   }
 
@@ -117,6 +126,11 @@ class AudioEngine {
     }
 
     final paramsMap = Map<String, dynamic>.from(params);
+    _normalizeControlAliases(paramsMap);
+    if (!_enforceControlGate(paramsMap)) {
+      return;
+    }
+
     final sound = paramsMap['s']?.toString().trim();
     if (sound == null || sound.isEmpty) return;
 
@@ -222,9 +236,7 @@ class AudioEngine {
     final cps = _getDouble(hap.context['cps'], 0.0);
     final durationParam = _getDouble(params['duration'], double.nan);
     final durationSeconds = durationParam.isNaN
-        ? (cps > 0
-            ? hap.duration.toDouble() / cps
-            : 0.2)
+        ? (cps > 0 ? hap.duration.toDouble() / cps : 0.2)
         : durationParam;
 
     params['duration'] = durationSeconds;
@@ -234,8 +246,7 @@ class AudioEngine {
     final cacheKey = shouldCache
         ? _buildSynthCacheKey(sound, params, durationSeconds)
         : null;
-    Uint8List? wavBytes =
-        cacheKey != null ? _getSynthCache(cacheKey) : null;
+    Uint8List? wavBytes = cacheKey != null ? _getSynthCache(cacheKey) : null;
 
     final isWavetable = _wavetableManager.isWavetableSound(sound);
     if (wavBytes == null && isWavetable) {
@@ -259,8 +270,7 @@ class AudioEngine {
           print('AudioEngine: Isolate render failed: $e');
         }
       }
-      wavBytes ??=
-          _synthEngine.render(params, durationSeconds).wavBytes;
+      wavBytes ??= _synthEngine.render(params, durationSeconds).wavBytes;
       if (cacheKey != null) {
         _putSynthCache(cacheKey, wavBytes);
       }
@@ -272,6 +282,7 @@ class AudioEngine {
     if (cutGroup != null && cutGroup > 0) {
       await _stopCutGroup(cutGroup);
     }
+    await _applyGlobalFilters(params);
 
     final key =
         'synth:$sound:${DateTime.now().microsecondsSinceEpoch.toString()}';
@@ -299,12 +310,15 @@ class AudioEngine {
         return;
       }
 
+      final gain = _getDouble(params['gain'], 1.0);
       final amp = _getDouble(params['amp'], 1.0);
-      final volume = amp.clamp(0.0, 2.0);
+      final velocity = _getDouble(params['velocity'], 1.0);
+      final pan = _normalizePan(_getDouble(params['pan'], 0.0));
+      final volume = (gain * amp * velocity).clamp(0.0, 2.0);
       final handle = await _soloud.play(
         source,
         volume: volume,
-        pan: 0.0,
+        pan: pan.clamp(-1.0, 1.0),
       );
 
       _activeHandles.add(handle);
@@ -382,9 +396,7 @@ class AudioEngine {
         if (loopBegin > 0) {
           _soloud.setLoopPoint(
             handle,
-            Duration(
-              microseconds: (length.inMicroseconds * loopBegin).round(),
-            ),
+            Duration(microseconds: (length.inMicroseconds * loopBegin).round()),
           );
         }
       } catch (e) {
@@ -395,14 +407,11 @@ class AudioEngine {
 
     if (end < 1.0 && end > begin) {
       final playFraction = end - begin;
-      final durationMicros =
-          (length.inMicroseconds * playFraction / safeSpeed).round();
+      final durationMicros = (length.inMicroseconds * playFraction / safeSpeed)
+          .round();
       if (durationMicros > 0) {
         try {
-          _soloud.scheduleStop(
-            handle,
-            Duration(microseconds: durationMicros),
-          );
+          _soloud.scheduleStop(handle, Duration(microseconds: durationMicros));
         } catch (e) {
           print('AudioEngine: Error scheduling stop: $e');
         }
@@ -736,6 +745,49 @@ class AudioEngine {
     return source;
   }
 
+  void _normalizeControlAliases(Map<String, dynamic> params) {
+    if (!params.containsKey('roomsize') && params.containsKey('size')) {
+      params['roomsize'] = params['size'];
+    }
+    if (!params.containsKey('decay') && params.containsKey('dec')) {
+      params['decay'] = params['dec'];
+    }
+  }
+
+  bool _enforceControlGate(Map<String, dynamic> params) {
+    if (_controlGateMode == ControlGateMode.off) {
+      return true;
+    }
+
+    final report = ControlSupportMatrix.evaluate(params);
+    if (_controlGateMode == ControlGateMode.strict && report.hasUnsupported) {
+      final unsupported = ControlSupportMatrix.formatKeys(report.unsupported);
+      print('AudioEngine: Unsupported controls (strict gate): $unsupported');
+      return false;
+    }
+
+    if (_controlGateMode == ControlGateMode.warn) {
+      final newUnsupported = report.unsupported.where(
+        (k) => !_warnedUnsupportedControls.contains(k),
+      );
+      final newPartial = report.partial.where(
+        (k) => !_warnedPartialControls.contains(k),
+      );
+
+      if (newUnsupported.isNotEmpty) {
+        final unsupported = ControlSupportMatrix.formatKeys(newUnsupported);
+        print('AudioEngine: Unsupported controls (ignored): $unsupported');
+        _warnedUnsupportedControls.addAll(newUnsupported);
+      }
+      if (newPartial.isNotEmpty) {
+        final partial = ControlSupportMatrix.formatKeys(newPartial);
+        print('AudioEngine: Partially supported controls: $partial');
+        _warnedPartialControls.addAll(newPartial);
+      }
+    }
+    return true;
+  }
+
   double _getDouble(dynamic value, double defaultValue) {
     if (value == null) return defaultValue;
     if (value is num) return value.toDouble();
@@ -784,10 +836,9 @@ class AudioEngine {
     Map<String, dynamic> params,
     double durationSeconds,
   ) {
-    final entries = params.entries
-        .where((entry) => !_ignoreCacheKey(entry.key))
-        .toList()
-      ..sort((a, b) => a.key.compareTo(b.key));
+    final entries =
+        params.entries.where((entry) => !_ignoreCacheKey(entry.key)).toList()
+          ..sort((a, b) => a.key.compareTo(b.key));
     final buffer = StringBuffer()
       ..write(sound.toLowerCase())
       ..write('|')
@@ -823,8 +874,7 @@ class AudioEngine {
       final entries = value.entries.toList()
         ..sort((a, b) => a.key.toString().compareTo(b.key.toString()));
       final parts = entries
-          .map((entry) =>
-              '${entry.key}:${_serializeValue(entry.value)}')
+          .map((entry) => '${entry.key}:${_serializeValue(entry.value)}')
           .join(',');
       return '{${parts}}';
     }
@@ -875,9 +925,7 @@ class AudioEngine {
     try {
       _soloud.seek(
         handle,
-        Duration(
-          microseconds: (length.inMicroseconds * position).round(),
-        ),
+        Duration(microseconds: (length.inMicroseconds * position).round()),
       );
     } catch (e) {
       print('AudioEngine: Error seeking sample: $e');
