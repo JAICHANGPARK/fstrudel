@@ -40,7 +40,7 @@ class StrudelScopeCanvas extends StatelessWidget {
 
   static void _resizeCanvas(web.HTMLCanvasElement canvas) {
     final rect = canvas.getBoundingClientRect();
-    final ratio = web.window.devicePixelRatio ?? 1;
+    final ratio = web.window.devicePixelRatio;
     canvas.width = (rect.width * ratio).round();
     canvas.height = (rect.height * ratio).round();
   }
